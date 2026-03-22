@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+*.pkl
+*.npz
+*.csv
+data/
+checkpoints/
+runs/
+.ipynb_checkpoints/
+.DS_Store
+.claude/
