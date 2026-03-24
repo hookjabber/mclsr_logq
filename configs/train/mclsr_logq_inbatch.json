@@ -117,6 +117,21 @@
         "loss_prefix": "downstream_loss"
       },
       {
+        "type": "metric",
+        "on_step": 1,
+        "loss_prefix": "contrastive_interest_loss"
+      },
+      {
+        "type": "metric",
+        "on_step": 1,
+        "loss_prefix": "contrastive_user_feature_loss"
+      },
+      {
+        "type": "metric",
+        "on_step": 1,
+        "loss_prefix": "contrastive_item_feature_loss"
+      },
+      {
         "type": "validation",
         "on_step": 64,
         "pred_prefix": "predictions",
