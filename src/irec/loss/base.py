@@ -409,3 +409,89 @@ class MCLSRLogqLoss(TorchLoss, config_name='mclsr_logq_special'):
             
         return final_loss
 
+
+class MCLSRLogqInBatchLoss(TorchLoss, config_name='mclsr_logq_inbatch'):
+    """
+    LogQ-corrected In-Batch Sampled Softmax Loss for MCLSR model.
+
+    Uses in-batch negatives: positive items of other users in the batch serve as negatives.
+    This naturally produces a popularity-proportional sampling distribution,
+    which LogQ correction precisely compensates.
+
+    LogQ correction is applied only to negatives (not to the positive).
+    """
+    def __init__(
+        self,
+        queries_prefix,
+        positive_prefix,
+        positive_ids_prefix,
+        path_to_item_counts,
+        logq_lambda=1.0,
+        output_prefix=None,
+    ):
+        super().__init__()
+        self._queries_prefix = queries_prefix
+        self._positive_prefix = positive_prefix
+        self._positive_ids_prefix = positive_ids_prefix
+        self._output_prefix = output_prefix
+        self._logq_lambda = logq_lambda
+
+        if not os.path.exists(path_to_item_counts):
+            raise FileNotFoundError(f"Item counts file not found at {path_to_item_counts}")
+
+        with open(path_to_item_counts, 'rb') as f:
+            counts = pickle.load(f)
+
+        counts_tensor = torch.tensor(counts, dtype=torch.float32)
+        probs = torch.clamp(counts_tensor / counts_tensor.sum(), min=1e-10)
+        log_q = torch.log(probs)
+        self.register_buffer('_log_q_table', log_q)
+
+    @classmethod
+    def create_from_config(cls, config, **kwargs):
+        return cls(
+            queries_prefix=config['queries_prefix'],
+            positive_prefix=config['positive_prefix'],
+            positive_ids_prefix=config['positive_ids_prefix'],
+            path_to_item_counts=config['path_to_item_counts'],
+            logq_lambda=config.get('logq_lambda', 1.0),
+            output_prefix=config.get('output_prefix'),
+        )
+
+    def forward(self, inputs):
+        queries = inputs[self._queries_prefix]       # (B, D)
+        pos_embs = inputs[self._positive_prefix]     # (B, D)
+        pos_ids = inputs[self._positive_ids_prefix]  # (B,)
+
+        if self._log_q_table.device != queries.device:
+            self._log_q_table = self._log_q_table.to(queries.device)
+
+        batch_size = queries.size(0)
+
+        # All-pairs scores: each query against all positive items in batch
+        # all_scores[i, j] = query_i · pos_emb_j
+        # Diagonal (i, i) = positive score, off-diagonal = in-batch negatives
+        all_scores = torch.mm(queries, pos_embs.T)  # (B, B)
+
+        # LogQ correction on negatives only:
+        # 1) Apply correction to ALL candidates (columns)
+        # 2) Undo correction on the diagonal (positives)
+        log_q = self._log_q_table[pos_ids]  # (B,)
+        all_scores = all_scores - self._logq_lambda * log_q.unsqueeze(0)  # (B, B)
+        all_scores.diagonal().add_(self._logq_lambda * log_q)
+
+        # False negative masking: if pos_ids[i] == pos_ids[j] and i != j,
+        # then user j's positive is actually the same item as user i's positive
+        false_neg_mask = (pos_ids.unsqueeze(0) == pos_ids.unsqueeze(1))  # (B, B)
+        false_neg_mask.fill_diagonal_(False)
+        all_scores = all_scores.masked_fill(false_neg_mask, -1e12)
+
+        # Cross-entropy: positive is the diagonal (target index i for row i)
+        labels = torch.arange(batch_size, device=queries.device)
+        loss = torch.nn.functional.cross_entropy(all_scores, labels)
+
+        if self._output_prefix:
+            inputs[self._output_prefix] = loss.cpu().item()
+
+        return loss
+
