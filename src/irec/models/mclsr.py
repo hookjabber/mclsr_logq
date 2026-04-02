@@ -27,6 +27,7 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
         graph_dropout=0.0,
         alpha=0.5,
         initializer_range=0.02,
+        use_graph=True,
     ):
         super().__init__()
         self._sequence_prefix = sequence_prefix
@@ -44,6 +45,7 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
         self._graph_dropout = graph_dropout
 
         self._alpha = alpha
+        self._use_graph = use_graph
 
         self._graph = common_graph
         self._user_graph = user_graph
@@ -84,76 +86,78 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
             ),
         )
 
-        # General interest learning
-        self._general_interest_learning_encoder = nn.Sequential(
-            nn.Linear(
-                in_features=embedding_dim,
-                out_features=embedding_dim,
-                bias=False,
-            ),
-            nn.Tanh(),
-        )
+        if self._use_graph:
+            # General interest learning
+            self._general_interest_learning_encoder = nn.Sequential(
+                nn.Linear(
+                    in_features=embedding_dim,
+                    out_features=embedding_dim,
+                    bias=False,
+                ),
+                nn.Tanh(),
+            )
 
-        # Cross-view contrastive learning
-        self._sequential_projector = nn.Sequential(
-            nn.Linear(
-                in_features=embedding_dim,
-                out_features=embedding_dim,
-                bias=True,
-            ),
-            nn.ELU(),
-            nn.Linear(
-                in_features=embedding_dim,
-                out_features=embedding_dim,
-                bias=True,
-            ),
-        )
-        self._graph_projector = nn.Sequential(
-            nn.Linear(
-                in_features=embedding_dim,
-                out_features=embedding_dim,
-                bias=True,
-            ),
-            nn.ELU(),
-            nn.Linear(
-                in_features=embedding_dim,
-                out_features=embedding_dim,
-                bias=True,
-            ),
-        )
+            # Cross-view contrastive learning
+            self._sequential_projector = nn.Sequential(
+                nn.Linear(
+                    in_features=embedding_dim,
+                    out_features=embedding_dim,
+                    bias=True,
+                ),
+                nn.ELU(),
+                nn.Linear(
+                    in_features=embedding_dim,
+                    out_features=embedding_dim,
+                    bias=True,
+                ),
+            )
+            self._graph_projector = nn.Sequential(
+                nn.Linear(
+                    in_features=embedding_dim,
+                    out_features=embedding_dim,
+                    bias=True,
+                ),
+                nn.ELU(),
+                nn.Linear(
+                    in_features=embedding_dim,
+                    out_features=embedding_dim,
+                    bias=True,
+                ),
+            )
 
-        self._user_projection = nn.Sequential(
-            nn.Linear(
-                in_features=embedding_dim,
-                out_features=embedding_dim,
-                bias=True,
-            ),
-            nn.ELU(),
-            nn.Linear(
-                in_features=embedding_dim,
-                out_features=embedding_dim,
-                bias=True,
-            ),
-        )
+            self._user_projection = nn.Sequential(
+                nn.Linear(
+                    in_features=embedding_dim,
+                    out_features=embedding_dim,
+                    bias=True,
+                ),
+                nn.ELU(),
+                nn.Linear(
+                    in_features=embedding_dim,
+                    out_features=embedding_dim,
+                    bias=True,
+                ),
+            )
 
-        self._item_projection = nn.Sequential(
-            nn.Linear(
-                in_features=embedding_dim,
-                out_features=embedding_dim,
-                bias=True,
-            ),
-            nn.ELU(),
-            nn.Linear(
-                in_features=embedding_dim,
-                out_features=embedding_dim,
-                bias=True,
-            ),
-        )
+            self._item_projection = nn.Sequential(
+                nn.Linear(
+                    in_features=embedding_dim,
+                    out_features=embedding_dim,
+                    bias=True,
+                ),
+                nn.ELU(),
+                nn.Linear(
+                    in_features=embedding_dim,
+                    out_features=embedding_dim,
+                    bias=True,
+                ),
+            )
 
         self._init_weights(initializer_range)
 
     @classmethod
     def create_from_config(cls, config, **kwargs):
+        use_graph = config.get('use_graph', True)
         return cls(
             sequence_prefix=config['sequence_prefix'],
             user_prefix=config['user_prefix'],
@@ -164,15 +168,16 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
             num_items=kwargs['num_items'],
             max_sequence_length=kwargs['max_sequence_length'],
             embedding_dim=config['embedding_dim'],
-            num_graph_layers=config['num_graph_layers'],
-            common_graph=kwargs['graph'],
-            user_graph=kwargs['user_graph'],
-            item_graph=kwargs['item_graph'],
+            num_graph_layers=config.get('num_graph_layers', 0),
+            common_graph=kwargs.get('graph'),
+            user_graph=kwargs.get('user_graph'),
+            item_graph=kwargs.get('item_graph'),
             dropout=config.get('dropout', 0.0),
             layer_norm_eps=config.get('layer_norm_eps', 1e-5),
             graph_dropout=config.get('graph_dropout', 0.0),
             alpha=config.get('alpha', 0.5),
             initializer_range=config.get('initializer_range', 0.02),
+            use_graph=use_graph,
         )
 
     def _apply_graph_encoder(self, embeddings, graph, use_mean=False):
@@ -275,6 +280,25 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
         )  # (batch_size, embedding_dim)
 
         if self.training:
+            if not self._use_graph:
+                # Sequential-only mode: skip graph, use I_s directly
+                labels = inputs['{}.ids'.format(self._labels_prefix)]
+                labels_embeddings = self._item_embeddings(labels)
+
+                raw_negative_ids = inputs['{}.ids'.format(self._negatives_prefix)]
+                num_negatives = raw_negative_ids.shape[0] // batch_size
+                negative_ids = raw_negative_ids.view(batch_size, num_negatives)
+                negative_embeddings = self._item_embeddings(negative_ids)
+
+                return {
+                    'combined_representation': sequential_representation,
+                    'label_representation': labels_embeddings,
+                    'negative_representation': negative_embeddings,
+                    'positive_ids': labels,
+                    'negative_ids': negative_ids,
+                    'user_ids': user_ids,
+                }
+
             # general interest
             # formula 4
             all_init_embeddings = torch.cat([self._user_embeddings.weight, 
