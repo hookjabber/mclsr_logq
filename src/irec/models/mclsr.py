@@ -182,6 +182,8 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
 
     def _apply_graph_encoder(self, embeddings, graph, use_mean=False):
         assert self.training  # Here we use graph only in training_mode
+        if graph is None:
+            raise ValueError('Graph encoder was requested, but graph is not provided')
 
         size = graph.size()
         index = graph.indices().t()
@@ -190,7 +192,12 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
         dropout_mask = dropout_mask.int().bool()
         index = index[~dropout_mask]
         values = values[~dropout_mask] / (1.0 - self._graph_dropout)
-        graph_dropped = torch.sparse.FloatTensor(index.t(), values, size)
+        graph_dropped = torch.sparse_coo_tensor(
+            index.t(),
+            values,
+            size,
+            device=values.device,
+        )
 
         all_embeddings = [embeddings]
         for _ in range(self._num_graph_layers):
@@ -342,58 +349,12 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
             sequential_representation_proj = self._sequential_projector(original_sequential_representation)
             graph_representation_proj = self._graph_projector(original_graph_representation)
 
-            # formula 9: H_u,uu = GraphEncoder(H_u, G_uu)
-            # L_UC (User-level CL)
-            user_graph_user_embs_all = self._apply_graph_encoder(embeddings=self._user_embeddings.weight, 
-                                                                 graph=self._user_graph)
-            user_graph_user_embs_batch = user_graph_user_embs_all[user_ids]
-
-            # formula 10
-            # T_f,uu = MLP(H_u,uu) и T_f,uv = MLP(H_u,uv)
-            user_graph_user_embeddings_proj = self._user_projection(user_graph_user_embs_batch)
-            common_graph_user_embeddings_proj = self._user_projection(common_graph_user_embs_batch)
-
-            # item level CL
-            common_graph_items_flat = common_graph_item_embs_batch[mask]
-            
-            item_graph_items_all = self._apply_graph_encoder(embeddings=self._item_embeddings.weight, 
-                                                             graph=self._item_graph)
-            item_graph_items_flat = item_graph_items_all[all_sample_events]
-
-            unique_item_ids, inverse_indices = torch.unique(all_sample_events, 
-                                                            return_inverse=True)
-
-            try:
-                from torch_scatter import scatter_mean
-            except ImportError:
-                # print("Warning: torch_scatter not found. Using a slower fallback function.")
-                def scatter_mean(src, index, dim=0, dim_size=None):
-                    out_size = dim_size if dim_size is not None else index.max() + 1
-                    out = torch.zeros((out_size, src.size(1)), dtype=src.dtype, device=src.device)
-                    counts = torch.bincount(index, minlength=out_size).unsqueeze(-1).clamp(min=1)
-                    return out.scatter_add_(dim, index.unsqueeze(-1).expand_as(src), src) / counts
-            
-            num_unique_items = unique_item_ids.shape[0]
-
-            unique_common_graph_items = scatter_mean(common_graph_items_flat,
-                                                     inverse_indices, dim=0,
-                                                     dim_size=num_unique_items)
-
-            unique_item_graph_items = scatter_mean(item_graph_items_flat,
-                                                   inverse_indices, dim=0,
-                                                   dim_size=num_unique_items)
-
-            # projection for Item-level Feature CL
-            unique_common_graph_items_proj = self._item_projection(unique_common_graph_items)
-            unique_item_graph_items_proj = self._item_projection(unique_item_graph_items)
-
-
             raw_negative_ids = inputs['{}.ids'.format(self._negatives_prefix)]
             num_negatives = raw_negative_ids.shape[0] // batch_size
             negative_ids = raw_negative_ids.view(batch_size, num_negatives) # (Batch, NumNegs)
             negative_embeddings = self._item_embeddings(negative_ids) # (Batch, NumNegs, Dim)
 
-            return {
+            outputs = {
                 # L_P (formula 14)
                 'combined_representation': combined_representation,
                 'label_representation': labels_embeddings,
@@ -417,15 +378,69 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
                 # for L_IL (formula 8)
                 'sequential_representation': sequential_representation_proj,
                 'graph_representation': graph_representation_proj,
-
-                # for L_UC (formula 11)
-                'user_graph_user_embeddings': user_graph_user_embeddings_proj,
-                'common_graph_user_embeddings': common_graph_user_embeddings_proj,
-                
-                # for L_IC
-                'item_graph_item_embeddings': unique_item_graph_items_proj,
-                'common_graph_item_embeddings': unique_common_graph_items_proj,
             }
+
+            if self._user_graph is not None:
+                # formula 9: H_u,uu = GraphEncoder(H_u, G_uu)
+                # L_UC (User-level CL)
+                user_graph_user_embs_all = self._apply_graph_encoder(
+                    embeddings=self._user_embeddings.weight,
+                    graph=self._user_graph,
+                )
+                user_graph_user_embs_batch = user_graph_user_embs_all[user_ids]
+
+                # formula 10
+                # T_f,uu = MLP(H_u,uu) and T_f,uv = MLP(H_u,uv)
+                outputs.update({
+                    'user_graph_user_embeddings': self._user_projection(user_graph_user_embs_batch),
+                    'common_graph_user_embeddings': self._user_projection(common_graph_user_embs_batch),
+                })
+
+            if self._item_graph is not None:
+                # L_IC (Item-level feature CL)
+                common_graph_items_flat = common_graph_item_embs_batch[mask]
+
+                item_graph_items_all = self._apply_graph_encoder(
+                    embeddings=self._item_embeddings.weight,
+                    graph=self._item_graph,
+                )
+                item_graph_items_flat = item_graph_items_all[all_sample_events]
+
+                unique_item_ids, inverse_indices = torch.unique(
+                    all_sample_events,
+                    return_inverse=True,
+                )
+
+                try:
+                    from torch_scatter import scatter_mean
+                except ImportError:
+                    def scatter_mean(src, index, dim=0, dim_size=None):
+                        out_size = dim_size if dim_size is not None else index.max() + 1
+                        out = torch.zeros((out_size, src.size(1)), dtype=src.dtype, device=src.device)
+                        counts = torch.bincount(index, minlength=out_size).unsqueeze(-1).clamp(min=1)
+                        return out.scatter_add_(dim, index.unsqueeze(-1).expand_as(src), src) / counts
+
+                num_unique_items = unique_item_ids.shape[0]
+
+                unique_common_graph_items = scatter_mean(
+                    common_graph_items_flat,
+                    inverse_indices,
+                    dim=0,
+                    dim_size=num_unique_items,
+                )
+                unique_item_graph_items = scatter_mean(
+                    item_graph_items_flat,
+                    inverse_indices,
+                    dim=0,
+                    dim_size=num_unique_items,
+                )
+
+                outputs.update({
+                    'item_graph_item_embeddings': self._item_projection(unique_item_graph_items),
+                    'common_graph_item_embeddings': self._item_projection(unique_common_graph_items),
+                })
+
+            return outputs
         else:  # eval mode
             # formula 16: R(u,N) = Top-N((I_s)^T * h_o)
             if '{}.ids'.format(self._candidate_prefix) in inputs:

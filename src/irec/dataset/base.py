@@ -529,6 +529,7 @@ class GraphDataset(BaseDataset, config_name='graph'):
         return cls(
             dataset=dataset,
             graph_dir_path=config['graph_dir_path'],
+            use_train_data_only=config.get('use_train_data_only', True),
             use_user_graph=config.get('use_user_graph', False),
             use_item_graph=config.get('use_item_graph', False),
             neighborhood_size=config.get('neighborhood_size', None),
@@ -575,7 +576,7 @@ class GraphDataset(BaseDataset, config_name='graph'):
         col = torch.Tensor(coo.col).long()
         index = torch.stack([row, col])
         data = torch.FloatTensor(coo.data)
-        return torch.sparse.FloatTensor(index, data, torch.Size(coo.shape))
+        return torch.sparse_coo_tensor(index, data, torch.Size(coo.shape))
 
     @staticmethod
     def _filter_matrix_by_top_k(matrix, k):
