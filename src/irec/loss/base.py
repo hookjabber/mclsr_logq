@@ -134,6 +134,7 @@ class FpsLoss(TorchLoss, config_name='fps'):
             2 * batch_size,
             2 * batch_size,
             dtype=torch.bool,
+            device=similarity_scores.device,
         )  # (2 * x, 2 * x)
         mask = mask.fill_diagonal_(0)  # Remove equal embeddings scores
         for i in range(batch_size):  # Remove positives
@@ -154,6 +155,180 @@ class FpsLoss(TorchLoss, config_name='fps'):
         )  # (2 * x, 2 * x - 1)
 
         loss = self._loss_function(logits, labels) / 2  # (1)
+
+        if self._output_prefix is not None:
+            inputs[self._output_prefix] = loss.cpu().item()
+
+        return loss
+
+
+class FpsLogQLoss(TorchLoss, config_name='fps_logq'):
+    """
+    LogQ-corrected two-view in-batch contrastive loss.
+
+    This is the LogQ variant of FpsLoss for losses such as L_IL, where the
+    candidates are other samples/users in the same batch rather than explicit
+    item negatives. The configured ids_prefix defines which sample id supplies
+    q(id) for the correction table. By default q(id) is converted to the
+    probability that this id appears at least once among B-1 in-batch negatives.
+    """
+    def __init__(
+        self,
+        fst_embeddings_prefix,
+        snd_embeddings_prefix,
+        ids_prefix,
+        path_to_counts,
+        tau,
+        logq_lambda=1.0,
+        logq_probability_mode='inbatch_negative',
+        normalize_embeddings=False,
+        use_mean=True,
+        mask_false_negatives=True,
+        output_prefix=None,
+    ):
+        super().__init__()
+        self._fst_embeddings_prefix = fst_embeddings_prefix
+        self._snd_embeddings_prefix = snd_embeddings_prefix
+        self._ids_prefix = ids_prefix
+        self._tau = tau
+        self._logq_lambda = logq_lambda
+        self._logq_probability_mode = logq_probability_mode
+        self._loss_function = nn.CrossEntropyLoss(
+            reduction='mean' if use_mean else 'sum',
+        )
+        self._normalize_embeddings = normalize_embeddings
+        self._mask_false_negatives = mask_false_negatives
+        self._output_prefix = output_prefix
+
+        if not os.path.exists(path_to_counts):
+            raise FileNotFoundError(f"Counts file not found at {path_to_counts}")
+
+        with open(path_to_counts, 'rb') as f:
+            counts = pickle.load(f)
+
+        counts_tensor = torch.tensor(counts, dtype=torch.float32)
+        probs = torch.clamp(counts_tensor / counts_tensor.sum(), min=1e-10, max=1.0)
+        self.register_buffer('_prob_table', probs)
+        self.register_buffer('_log_q_table', torch.log(probs))
+
+        allowed_modes = {'sample', 'inbatch_negative'}
+        if self._logq_probability_mode not in allowed_modes:
+            raise ValueError(
+                'FpsLogQLoss `logq_probability_mode` must be one of '
+                f'{sorted(allowed_modes)}, got {self._logq_probability_mode}'
+            )
+
+    @classmethod
+    def create_from_config(cls, config, **kwargs):
+        path_to_counts = config.get(
+            'path_to_counts',
+            config.get('path_to_item_counts'),
+        )
+        if path_to_counts is None:
+            raise ValueError(
+                'FpsLogQLoss requires `path_to_counts` in the loss config'
+            )
+
+        return cls(
+            fst_embeddings_prefix=config['fst_embeddings_prefix'],
+            snd_embeddings_prefix=config['snd_embeddings_prefix'],
+            ids_prefix=config['ids_prefix'],
+            path_to_counts=path_to_counts,
+            tau=config.get('temperature', 1.0),
+            logq_lambda=config.get('logq_lambda', 1.0),
+            logq_probability_mode=config.get(
+                'logq_probability_mode',
+                'inbatch_negative',
+            ),
+            normalize_embeddings=config.get('normalize_embeddings', False),
+            use_mean=config.get('use_mean', True),
+            mask_false_negatives=config.get('mask_false_negatives', True),
+            output_prefix=config.get('output_prefix'),
+        )
+
+    def _candidate_log_q(self, ids, batch_size, device):
+        if self._logq_probability_mode == 'sample':
+            sample_log_q = self._log_q_table.to(device=device)[ids]
+        else:
+            sample_probs = self._prob_table.to(device=device)[ids]
+            num_negative_draws = batch_size - 1
+            if num_negative_draws <= 0:
+                sample_q = torch.full_like(sample_probs, 1e-10)
+            else:
+                sample_q = 1.0 - torch.pow(1.0 - sample_probs, num_negative_draws)
+                sample_q = torch.clamp(sample_q, min=1e-10)
+            sample_log_q = torch.log(sample_q)
+
+        return torch.cat(
+            (sample_log_q, sample_log_q),
+            dim=0,
+        )  # (2 * B,)
+
+    def forward(self, inputs):
+        fst_embeddings = inputs[self._fst_embeddings_prefix]  # (B, D)
+        snd_embeddings = inputs[self._snd_embeddings_prefix]  # (B, D)
+        ids = inputs[self._ids_prefix]                        # (B,)
+
+        if fst_embeddings.shape != snd_embeddings.shape:
+            raise ValueError(
+                'FpsLogQLoss expects both embedding tensors to have the same shape'
+            )
+
+        batch_size = fst_embeddings.shape[0]
+        if ids.shape[0] != batch_size:
+            raise ValueError(
+                f'FpsLogQLoss got {ids.shape[0]} ids for batch size {batch_size}'
+            )
+
+        combined_embeddings = torch.cat(
+            (fst_embeddings, snd_embeddings),
+            dim=0,
+        )  # (2 * B, D)
+
+        if self._normalize_embeddings:
+            combined_embeddings = torch.nn.functional.normalize(
+                combined_embeddings,
+                p=2,
+                dim=-1,
+                eps=1e-6,
+            )
+
+        all_scores = (
+            torch.mm(combined_embeddings, combined_embeddings.T) / self._tau
+        )  # (2 * B, 2 * B)
+
+        device = all_scores.device
+        ids = ids.to(device=device)
+        candidate_log_q = self._candidate_log_q(ids, batch_size, device)
+
+        all_scores = all_scores - self._logq_lambda * candidate_log_q.unsqueeze(0)
+
+        num_views = 2 * batch_size
+        row_indices = torch.arange(num_views, device=device)
+        positive_indices = (row_indices + batch_size) % num_views
+
+        # The paired positive is the observed sample, not a sampled negative.
+        all_scores[row_indices, positive_indices] += (
+            self._logq_lambda * candidate_log_q[positive_indices]
+        )
+
+        invalid_mask = torch.eye(
+            num_views,
+            dtype=torch.bool,
+            device=device,
+        )
+        if self._mask_false_negatives:
+            candidate_ids = torch.cat((ids, ids), dim=0)  # (2 * B,)
+            false_negative_mask = (
+                candidate_ids.unsqueeze(0) == candidate_ids.unsqueeze(1)
+            )
+            false_negative_mask[row_indices, positive_indices] = False
+            false_negative_mask.fill_diagonal_(False)
+            invalid_mask |= false_negative_mask
+
+        all_scores = all_scores.masked_fill(invalid_mask, -1e12)
+
+        loss = self._loss_function(all_scores, positive_indices) / 2
 
         if self._output_prefix is not None:
             inputs[self._output_prefix] = loss.cpu().item()
@@ -494,4 +669,3 @@ class MCLSRLogqInBatchLoss(TorchLoss, config_name='mclsr_logq_inbatch'):
             inputs[self._output_prefix] = loss.cpu().item()
 
         return loss
-
