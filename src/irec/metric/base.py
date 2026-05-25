@@ -118,6 +118,7 @@ class MCLSRNDCGMetric(BaseMetric, config_name='mclsr-ndcg'):
         predictions = inputs[pred_prefix][:, :self._k] # (batch_size, k)
         labels_flat = inputs[f'{labels_prefix}.ids']      # (total_labels,)
         labels_lengths = inputs[f'{labels_prefix}.length'] # (batch_size,)
+        effective_k = predictions.shape[1]
 
         assert predictions.shape[0] == labels_lengths.shape[0]
 
@@ -125,17 +126,17 @@ class MCLSRNDCGMetric(BaseMetric, config_name='mclsr-ndcg'):
         offset = 0
         for i in range(predictions.shape[0]):
             user_predictions = predictions[i]
-            num_user_labels = labels_lengths[i]
+            num_user_labels = int(labels_lengths[i].item())
             user_labels = labels_flat[offset : offset + num_user_labels]
             offset += num_user_labels
 
             hits_mask = torch.isin(user_predictions, user_labels) # (k,) -> True/False
             
-            positions = torch.arange(2, self._k + 2, device=predictions.device)
+            positions = torch.arange(2, effective_k + 2, device=predictions.device)
             weights = 1 / torch.log2(positions.float())
             dcg = (hits_mask.float() * weights).sum()
             
-            num_ideal_hits = min(self._k, num_user_labels)
+            num_ideal_hits = min(effective_k, num_user_labels)
             idcg_weights = weights[:num_ideal_hits]
             idcg = idcg_weights.sum()
             
@@ -160,7 +161,7 @@ class MCLSRRecallMetric(BaseMetric, config_name='mclsr-recall'):
         offset = 0
         for i in range(predictions.shape[0]):
             user_predictions = predictions[i]
-            num_user_labels = labels_lengths[i]
+            num_user_labels = int(labels_lengths[i].item())
             user_labels = labels_flat[offset : offset + num_user_labels]
             offset += num_user_labels
             
@@ -186,15 +187,14 @@ class MCLSRHitRateMetric(BaseMetric, config_name='mclsr-hit'):
         offset = 0
         for i in range(predictions.shape[0]):
             user_predictions = predictions[i]
-            num_user_labels = labels_lengths[i]
+            num_user_labels = int(labels_lengths[i].item())
+            user_labels = labels_flat[offset : offset + num_user_labels]
+            offset += num_user_labels
 
             if num_user_labels == 0:
                 hit_scores.append(0.0)
                 continue
 
-            user_labels = labels_flat[offset : offset + num_user_labels]
-            offset += num_user_labels
-            
             is_hit = torch.isin(user_predictions, user_labels).any()
             
             hit_scores.append(float(is_hit))

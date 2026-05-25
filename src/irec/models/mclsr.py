@@ -28,6 +28,7 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
         alpha=0.5,
         initializer_range=0.02,
         use_graph=True,
+        eval_top_k=50,
     ):
         super().__init__()
         self._sequence_prefix = sequence_prefix
@@ -46,6 +47,9 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
 
         self._alpha = alpha
         self._use_graph = use_graph
+        self._eval_top_k = eval_top_k
+        if self._eval_top_k <= 0:
+            raise ValueError('eval_top_k must be a positive integer')
 
         self._graph = common_graph
         self._user_graph = user_graph
@@ -178,6 +182,7 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
             alpha=config.get('alpha', 0.5),
             initializer_range=config.get('initializer_range', 0.02),
             use_graph=use_graph,
+            eval_top_k=config.get('eval_top_k', 50),
         )
 
     def _apply_graph_encoder(self, embeddings, graph, use_mean=False):
@@ -460,12 +465,21 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
                     data=candidate_embeddings,
                     lengths=candidate_lengths,
                 )  # (batch_size, num_candidates, embedding_dim)
+                candidate_ids, candidate_mask = create_masked_tensor(
+                    data=candidate_events,
+                    lengths=candidate_lengths,
+                )  # (batch_size, num_candidates)
 
                 candidate_scores = torch.einsum(
                     'bd,bnd->bn',
                     sequential_representation, # I_s
                     candidate_embeddings, # h_o (and h_k)
                 )  # (batch_size, num_candidates)
+                candidate_scores[~candidate_mask] = -torch.inf
+                top_k = min(
+                    self._eval_top_k,
+                    candidate_scores.shape[-1],
+                )
             else:
                 candidate_embeddings = (
                     self._item_embeddings.weight
@@ -477,13 +491,20 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
                 )  # (batch_size, num_items)
                 candidate_scores[:, 0] = -torch.inf
                 candidate_scores[:, self._num_items + 1 :] = -torch.inf
+                top_k = min(
+                    self._eval_top_k,
+                    self._num_items,
+                )
 
 
-            values, indices = torch.topk(
+            _, indices = torch.topk(
                 candidate_scores,
-                k=50,
+                k=top_k,
                 dim=-1,
                 largest=True,
-            )  # (batch_size, 50), (batch_size, 50)
+            )  # (batch_size, top_k)
+
+            if '{}.ids'.format(self._candidate_prefix) in inputs:
+                indices = torch.gather(candidate_ids, dim=1, index=indices)
 
             return indices
