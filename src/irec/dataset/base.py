@@ -714,7 +714,7 @@ class MCLSRDataset(BaseSequenceDataset, config_name='mclsr'):
     def _create_sequences_from_file(filepath, max_len=None):
         sequences = {}
         max_user, max_item = 0, 0
-        
+
         with open(filepath, 'r') as f:
             for line in f:
                 parts = line.strip().split(' ')
@@ -727,6 +727,24 @@ class MCLSRDataset(BaseSequenceDataset, config_name='mclsr'):
                 if item_ids:
                     max_item = max(max_item, max(item_ids))
         return sequences, max_user, max_item
+
+    @staticmethod
+    def _read_train_samples(filepath, max_len=None):
+        samples = []
+        max_user, max_item = 0, 0
+
+        with open(filepath, 'r') as f:
+            for line in f:
+                parts = line.strip().split(' ')
+                user_id = int(parts[0])
+                item_ids = [int(i) for i in parts[1:]]
+                if max_len:
+                    item_ids = item_ids[-max_len:]
+                samples.append((user_id, item_ids))
+                max_user = max(max_user, user_id)
+                if item_ids:
+                    max_item = max(max_item, max(item_ids))
+        return samples, max_user, max_item
     
     @classmethod
     def _create_evaluation_sets(cls, data_dir, max_seq_len):
@@ -747,8 +765,8 @@ class MCLSRDataset(BaseSequenceDataset, config_name='mclsr'):
         data_dir = os.path.join(config['path_to_data_dir'], config['name'])
         max_seq_len = config.get('max_sequence_length')
 
-        train_sequences, u1, i1 = cls._create_sequences_from_file(os.path.join(data_dir, 'train_mclsr.txt'), max_seq_len)
-        train_dataset = [{'user.ids': [uid], 'user.length': 1, 'item.ids': seq, 'item.length': len(seq)} for uid, seq in train_sequences.items()]
+        train_samples, u1, i1 = cls._read_train_samples(os.path.join(data_dir, 'train_mclsr.txt'), max_seq_len)
+        train_dataset = [{'user.ids': [uid], 'user.length': 1, 'item.ids': seq, 'item.length': len(seq)} for uid, seq in train_samples]
 
         user_to_all_seen_items = defaultdict(set)
         for sample in train_dataset: user_to_all_seen_items[sample['user.ids'][0]].update(sample['item.ids'])

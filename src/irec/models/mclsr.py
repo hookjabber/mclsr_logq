@@ -465,21 +465,20 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
                     data=candidate_embeddings,
                     lengths=candidate_lengths,
                 )  # (batch_size, num_candidates, embedding_dim)
-                candidate_ids, candidate_mask = create_masked_tensor(
-                    data=candidate_events,
-                    lengths=candidate_lengths,
-                )  # (batch_size, num_candidates)
 
                 candidate_scores = torch.einsum(
                     'bd,bnd->bn',
                     sequential_representation, # I_s
                     candidate_embeddings, # h_o (and h_k)
                 )  # (batch_size, num_candidates)
-                candidate_scores[~candidate_mask] = -torch.inf
-                top_k = min(
-                    self._eval_top_k,
-                    candidate_scores.shape[-1],
-                )
+                if self._eval_top_k > candidate_scores.shape[-1]:
+                    raise ValueError(
+                        'eval_top_k={} is larger than the number of candidates={}'.format(
+                            self._eval_top_k,
+                            candidate_scores.shape[-1],
+                        ),
+                    )
+                top_k = self._eval_top_k
             else:
                 candidate_embeddings = (
                     self._item_embeddings.weight
@@ -491,10 +490,14 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
                 )  # (batch_size, num_items)
                 candidate_scores[:, 0] = -torch.inf
                 candidate_scores[:, self._num_items + 1 :] = -torch.inf
-                top_k = min(
-                    self._eval_top_k,
-                    self._num_items,
-                )
+                if self._eval_top_k > self._num_items:
+                    raise ValueError(
+                        'eval_top_k={} is larger than num_items={}'.format(
+                            self._eval_top_k,
+                            self._num_items,
+                        ),
+                    )
+                top_k = self._eval_top_k
 
 
             _, indices = torch.topk(
@@ -503,8 +506,5 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
                 dim=-1,
                 largest=True,
             )  # (batch_size, top_k)
-
-            if '{}.ids'.format(self._candidate_prefix) in inputs:
-                indices = torch.gather(candidate_ids, dim=1, index=indices)
 
             return indices
