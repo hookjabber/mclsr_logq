@@ -443,6 +443,7 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
                 outputs.update({
                     'item_graph_item_embeddings': self._item_projection(unique_item_graph_items),
                     'common_graph_item_embeddings': self._item_projection(unique_common_graph_items),
+                    'item_ids': unique_item_ids,
                 })
 
             return outputs
