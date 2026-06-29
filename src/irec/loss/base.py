@@ -185,6 +185,7 @@ class FpsLogQLoss(TorchLoss, config_name='fps_logq'):
         use_mean=True,
         mask_false_negatives=True,
         output_prefix=None,
+        num_draws_prefix=None,
     ):
         super().__init__()
         self._fst_embeddings_prefix = fst_embeddings_prefix
@@ -193,6 +194,7 @@ class FpsLogQLoss(TorchLoss, config_name='fps_logq'):
         self._tau = tau
         self._logq_lambda = logq_lambda
         self._logq_probability_mode = logq_probability_mode
+        self._num_draws_prefix = num_draws_prefix
         self._loss_function = nn.CrossEntropyLoss(
             reduction='mean' if use_mean else 'sum',
         )
@@ -244,14 +246,14 @@ class FpsLogQLoss(TorchLoss, config_name='fps_logq'):
             use_mean=config.get('use_mean', True),
             mask_false_negatives=config.get('mask_false_negatives', True),
             output_prefix=config.get('output_prefix'),
+            num_draws_prefix=config.get('num_draws_prefix'),
         )
 
-    def _candidate_log_q(self, ids, batch_size, device):
+    def _candidate_log_q(self, ids, num_negative_draws, device):
         if self._logq_probability_mode == 'sample':
             sample_log_q = self._log_q_table.to(device=device)[ids]
         else:
             sample_probs = self._prob_table.to(device=device)[ids]
-            num_negative_draws = batch_size - 1
             if num_negative_draws <= 0:
                 sample_q = torch.full_like(sample_probs, 1e-10)
             else:
@@ -299,7 +301,11 @@ class FpsLogQLoss(TorchLoss, config_name='fps_logq'):
 
         device = all_scores.device
         ids = ids.to(device=device)
-        candidate_log_q = self._candidate_log_q(ids, batch_size, device)
+        if self._num_draws_prefix is not None:
+            num_negative_draws = int(inputs[self._num_draws_prefix])
+        else:
+            num_negative_draws = batch_size - 1
+        candidate_log_q = self._candidate_log_q(ids, num_negative_draws, device)
 
         all_scores = all_scores - self._logq_lambda * candidate_log_q.unsqueeze(0)
 
@@ -603,11 +609,13 @@ class MCLSRLogqInBatchLoss(TorchLoss, config_name='mclsr_logq_inbatch'):
         path_to_item_counts,
         logq_lambda=1.0,
         output_prefix=None,
+        user_ids_prefix=None,
     ):
         super().__init__()
         self._queries_prefix = queries_prefix
         self._positive_prefix = positive_prefix
         self._positive_ids_prefix = positive_ids_prefix
+        self._user_ids_prefix = user_ids_prefix
         self._output_prefix = output_prefix
         self._logq_lambda = logq_lambda
 
@@ -631,6 +639,7 @@ class MCLSRLogqInBatchLoss(TorchLoss, config_name='mclsr_logq_inbatch'):
             path_to_item_counts=config['path_to_item_counts'],
             logq_lambda=config.get('logq_lambda', 1.0),
             output_prefix=config.get('output_prefix'),
+            user_ids_prefix=config.get('user_ids_prefix'),
         )
 
     def forward(self, inputs):
@@ -660,6 +669,15 @@ class MCLSRLogqInBatchLoss(TorchLoss, config_name='mclsr_logq_inbatch'):
         false_neg_mask = (pos_ids.unsqueeze(0) == pos_ids.unsqueeze(1))  # (B, B)
         false_neg_mask.fill_diagonal_(False)
         all_scores = all_scores.masked_fill(false_neg_mask, -1e12)
+
+        # Same-user masking: with the leave-one-out ladder a user appears in the
+        # batch multiple times, so another prefix's target is an item that same
+        # user actually consumed -> a false negative the item-id mask above misses.
+        if self._user_ids_prefix is not None:
+            user_ids = inputs[self._user_ids_prefix].reshape(-1)  # (B,)
+            same_user_mask = (user_ids.unsqueeze(0) == user_ids.unsqueeze(1))  # (B, B)
+            same_user_mask.fill_diagonal_(False)
+            all_scores = all_scores.masked_fill(same_user_mask, -1e12)
 
         # Cross-entropy: positive is the diagonal (target index i for row i)
         labels = torch.arange(batch_size, device=queries.device)

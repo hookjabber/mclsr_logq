@@ -444,6 +444,10 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
                     'item_graph_item_embeddings': self._item_projection(unique_item_graph_items),
                     'common_graph_item_embeddings': self._item_projection(unique_common_graph_items),
                     'item_ids': unique_item_ids,
+                    'item_event_count': torch.tensor(
+                        all_sample_events.shape[0],
+                        device=all_sample_events.device,
+                    ),
                 })
 
             return outputs
