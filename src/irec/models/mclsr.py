@@ -28,6 +28,7 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
         alpha=0.5,
         initializer_range=0.02,
         use_graph=True,
+        share_il_projector=False,
         eval_top_k=50,
     ):
         super().__init__()
@@ -128,6 +129,9 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
                     bias=True,
                 ),
             )
+            if share_il_projector:
+                # paper eq 7: one shared projection head for both L_IL views
+                self._graph_projector = self._sequential_projector
 
             self._user_projection = nn.Sequential(
                 nn.Linear(
@@ -182,6 +186,7 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
             alpha=config.get('alpha', 0.5),
             initializer_range=config.get('initializer_range', 0.02),
             use_graph=use_graph,
+            share_il_projector=config.get('share_il_projector', False),
             eval_top_k=config.get('eval_top_k', 50),
         )
 
