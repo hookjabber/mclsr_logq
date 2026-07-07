@@ -173,7 +173,7 @@ def main():
     logger.debug('Everything is ready for training process!')
 
     # Train process
-    _ = train(
+    best_checkpoint = train(
         dataloader=train_dataloader,
         model=model,
         optimizer=optimizer,
@@ -191,6 +191,18 @@ def main():
     )
     torch.save(model.state_dict(), checkpoint_path)
     logger.debug('Saved model as {}'.format(checkpoint_path))
+
+    if best_checkpoint is not None:
+        best_checkpoint_path = './checkpoints/{}_best_state.pth'.format(
+            config['experiment_name'],
+        )
+        torch.save(best_checkpoint, best_checkpoint_path)
+        logger.debug(
+            'Saved best checkpoint (by {}) as {}'.format(
+                config.get('best_metric'),
+                best_checkpoint_path,
+            ),
+        )
 
     if config.get('use_wandb', False):
         wandb.finish()
