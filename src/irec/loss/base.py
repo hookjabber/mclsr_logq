@@ -648,6 +648,11 @@ class MCLSRLogqInBatchLoss(TorchLoss, config_name='mclsr_logq_inbatch'):
     which LogQ correction precisely compensates.
 
     LogQ correction is applied only to negatives (not to the positive).
+
+    With `leave_own_out=True` the correction uses the leave-anchor-out
+    distribution q'_i(j) = q(j) / (1 - q(pos_i)): the false-negative mask
+    removes the anchor's own positive item from the candidate pool, so
+    in-batch negatives are effectively drawn from q', not from the marginal q.
     """
     def __init__(
         self,
@@ -656,6 +661,7 @@ class MCLSRLogqInBatchLoss(TorchLoss, config_name='mclsr_logq_inbatch'):
         positive_ids_prefix,
         path_to_item_counts,
         logq_lambda=1.0,
+        leave_own_out=False,
         output_prefix=None,
         user_ids_prefix=None,
     ):
@@ -666,6 +672,7 @@ class MCLSRLogqInBatchLoss(TorchLoss, config_name='mclsr_logq_inbatch'):
         self._user_ids_prefix = user_ids_prefix
         self._output_prefix = output_prefix
         self._logq_lambda = logq_lambda
+        self._leave_own_out = leave_own_out
 
         if not os.path.exists(path_to_item_counts):
             raise FileNotFoundError(f"Item counts file not found at {path_to_item_counts}")
@@ -677,6 +684,7 @@ class MCLSRLogqInBatchLoss(TorchLoss, config_name='mclsr_logq_inbatch'):
         probs = torch.clamp(counts_tensor / counts_tensor.sum(), min=1e-10)
         log_q = torch.log(probs)
         self.register_buffer('_log_q_table', log_q)
+        self.register_buffer('_prob_table', probs)
 
     @classmethod
     def create_from_config(cls, config, **kwargs):
@@ -686,6 +694,7 @@ class MCLSRLogqInBatchLoss(TorchLoss, config_name='mclsr_logq_inbatch'):
             positive_ids_prefix=config['positive_ids_prefix'],
             path_to_item_counts=config['path_to_item_counts'],
             logq_lambda=config.get('logq_lambda', 1.0),
+            leave_own_out=config.get('leave_own_out', False),
             output_prefix=config.get('output_prefix'),
             user_ids_prefix=config.get('user_ids_prefix'),
         )
@@ -697,6 +706,8 @@ class MCLSRLogqInBatchLoss(TorchLoss, config_name='mclsr_logq_inbatch'):
 
         if self._log_q_table.device != queries.device:
             self._log_q_table = self._log_q_table.to(queries.device)
+        if self._prob_table.device != queries.device:
+            self._prob_table = self._prob_table.to(queries.device)
 
         batch_size = queries.size(0)
 
@@ -710,7 +721,16 @@ class MCLSRLogqInBatchLoss(TorchLoss, config_name='mclsr_logq_inbatch'):
         # 2) Undo correction on the diagonal (positives)
         log_q = self._log_q_table[pos_ids]  # (B,)
         all_scores = all_scores - self._logq_lambda * log_q.unsqueeze(0)  # (B, B)
-        all_scores.diagonal().add_(self._logq_lambda * log_q)
+        if self._leave_own_out:
+            # log q'_i(j) = log q(j) - log(1 - q(pos_i)): row-wise constant
+            # accounting for the anchor's own item being masked from the pool
+            row_keep_log = torch.log(
+                torch.clamp(1.0 - self._prob_table[pos_ids], min=1e-10),
+            )  # (B,) = log(1 - q(pos_i))
+            all_scores = all_scores + self._logq_lambda * row_keep_log.unsqueeze(1)
+            all_scores.diagonal().add_(self._logq_lambda * (log_q - row_keep_log))
+        else:
+            all_scores.diagonal().add_(self._logq_lambda * log_q)
 
         # False negative masking: if pos_ids[i] == pos_ids[j] and i != j,
         # then user j's positive is actually the same item as user i's positive
