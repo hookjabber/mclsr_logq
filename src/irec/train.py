@@ -92,8 +92,11 @@ def train(
 
 
 def main():
-    fix_random_seed(seed_val)
     config = parse_args()
+    fix_random_seed(
+        config.get('seed', seed_val),
+        deterministic=config.get('deterministic', False),
+    )
 
     if config.get('use_wandb', False):
         wandb.init(

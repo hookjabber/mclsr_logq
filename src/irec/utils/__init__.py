@@ -44,11 +44,19 @@ def create_logger(
     return logger
 
 
-def fix_random_seed(seed):
+def fix_random_seed(seed, deterministic=False):
+    os.environ['PYTHONHASHSEED'] = str(seed)
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+    if deterministic:
+        # cuBLAS reads this at first use; sparse/scatter CUDA kernels still
+        # have no deterministic implementation, hence warn_only
+        os.environ.setdefault('CUBLAS_WORKSPACE_CONFIG', ':4096:8')
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+        torch.use_deterministic_algorithms(True, warn_only=True)
 
 
 def maybe_to_list(values):
