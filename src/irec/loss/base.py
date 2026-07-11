@@ -861,3 +861,72 @@ class MCLSRLogqInBatchLoss(TorchLoss, config_name='mclsr_logq_inbatch'):
             inputs[self._output_prefix] = loss.cpu().item()
 
         return loss
+
+
+class ContrastiveFullSoftmaxLoss(TorchLoss, config_name='contrastive_full_softmax'):
+    """
+    Exact full-catalog contrastive anchor.
+
+    Batch anchors from one view are contrasted against the FULL projected
+    table of the other view (all users or all items): the positive is the
+    anchor's own row in the table, every other entity is a negative. No
+    sampling and hence no sampling bias — this is the gold standard that the
+    in-batch contrastive losses approximate. Padding (index 0) and mask
+    (last index) columns are excluded from the softmax.
+    """
+    def __init__(
+        self,
+        anchors_prefix,
+        table_prefix,
+        ids_prefix,
+        tau=1.0,
+        normalize_embeddings=False,
+        use_mean=True,
+        output_prefix=None,
+    ):
+        super().__init__()
+        self._anchors_prefix = anchors_prefix
+        self._table_prefix = table_prefix
+        self._ids_prefix = ids_prefix
+        self._tau = tau
+        self._normalize_embeddings = normalize_embeddings
+        self._loss_function = nn.CrossEntropyLoss(
+            reduction='mean' if use_mean else 'sum',
+        )
+        self._output_prefix = output_prefix
+
+    @classmethod
+    def create_from_config(cls, config, **kwargs):
+        return cls(
+            anchors_prefix=config['anchors_prefix'],
+            table_prefix=config['table_prefix'],
+            ids_prefix=config['ids_prefix'],
+            tau=config.get('temperature', 1.0),
+            normalize_embeddings=config.get('normalize_embeddings', False),
+            use_mean=config.get('use_mean', True),
+            output_prefix=config.get('output_prefix'),
+        )
+
+    def forward(self, inputs):
+        anchors = inputs[self._anchors_prefix]        # (B, D)
+        table = inputs[self._table_prefix]            # (N, D)
+        ids = inputs[self._ids_prefix].reshape(-1)    # (B,)
+
+        if self._normalize_embeddings:
+            anchors = torch.nn.functional.normalize(
+                anchors, p=2, dim=-1, eps=1e-6,
+            )
+            table = torch.nn.functional.normalize(
+                table, p=2, dim=-1, eps=1e-6,
+            )
+
+        all_scores = torch.mm(anchors, table.T) / self._tau  # (B, N)
+        all_scores[:, 0] = -1e12   # padding column
+        all_scores[:, -1] = -1e12  # mask-token column
+
+        loss = self._loss_function(all_scores, ids)
+
+        if self._output_prefix:
+            inputs[self._output_prefix] = loss.cpu().item()
+
+        return loss

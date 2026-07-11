@@ -16,7 +16,11 @@ import torch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from irec.loss.base import FpsLogQLoss, MCLSRLogqInBatchLoss  # noqa: E402
+from irec.loss.base import (  # noqa: E402
+    ContrastiveFullSoftmaxLoss,
+    FpsLogQLoss,
+    MCLSRLogqInBatchLoss,
+)
 
 B = 8
 D = 16
@@ -222,6 +226,26 @@ def test_inbatch_cosine_temperature_matches_reference():
     assert torch.allclose(got, want, atol=1e-4), (got.item(), want.item())
     got.backward()
     assert torch.isfinite(q.grad).all()
+
+
+def test_contrastive_full_softmax_matches_manual():
+    torch.manual_seed(5)
+    num_entities = 12  # table size = entities + 2 (padding + mask)
+    table = torch.randn(num_entities + 2, D, requires_grad=True)
+    anchors = torch.randn(B, D)
+    ids = torch.tensor([1, 1, 2, 3, 4, 5, 11, 12])  # duplicate anchors OK
+    loss = ContrastiveFullSoftmaxLoss(
+        anchors_prefix='a', table_prefix='t', ids_prefix='i', tau=0.5,
+    )
+    got = loss({'a': anchors, 't': table, 'i': ids})
+    s = (anchors @ table.detach().T) / 0.5
+    s[:, 0] = -1e12
+    s[:, -1] = -1e12
+    want = torch.nn.functional.cross_entropy(s, ids)
+    assert torch.allclose(got, want, atol=1e-5), (got.item(), want.item())
+    got.backward()
+    assert torch.isfinite(table.grad).all()
+    assert torch.all(table.grad[0] == 0) and torch.all(table.grad[-1] == 0)
 
 
 if __name__ == '__main__':

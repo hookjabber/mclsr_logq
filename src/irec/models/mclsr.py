@@ -29,9 +29,11 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
         initializer_range=0.02,
         use_graph=True,
         share_il_projector=False,
+        output_full_contrastive_tables=False,
         eval_top_k=50,
     ):
         super().__init__()
+        self._output_full_contrastive_tables = output_full_contrastive_tables
         self._sequence_prefix = sequence_prefix
         self._user_prefix = user_prefix
         self._labels_prefix = labels_prefix
@@ -187,6 +189,9 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
             initializer_range=config.get('initializer_range', 0.02),
             use_graph=use_graph,
             share_il_projector=config.get('share_il_projector', False),
+            output_full_contrastive_tables=config.get(
+                'output_full_contrastive_tables', False,
+            ),
             eval_top_k=config.get('eval_top_k', 50),
         )
 
@@ -405,6 +410,11 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
                     'user_graph_user_embeddings': self._user_projection(user_graph_user_embs_batch),
                     'common_graph_user_embeddings': self._user_projection(common_graph_user_embs_batch),
                 })
+                if self._output_full_contrastive_tables:
+                    # full uu-view table for the exact-softmax contrastive anchor
+                    outputs['user_graph_user_table'] = self._user_projection(
+                        user_graph_user_embs_all,
+                    )
 
             if self._item_graph is not None:
                 # L_IC (Item-level feature CL)
@@ -454,6 +464,11 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
                         device=all_sample_events.device,
                     ),
                 })
+                if self._output_full_contrastive_tables:
+                    # full ii-view table for the exact-softmax contrastive anchor
+                    outputs['item_graph_item_table'] = self._item_projection(
+                        item_graph_items_all,
+                    )
 
             return outputs
         else:  # eval mode
