@@ -68,6 +68,7 @@ class FpsLoss(TorchLoss, config_name='fps'):
         tau,
         normalize_embeddings=False,
         use_mean=True,
+        scheme='symmetric',
         output_prefix=None,
     ):
         super().__init__()
@@ -78,16 +79,20 @@ class FpsLoss(TorchLoss, config_name='fps'):
             reduction='mean' if use_mean else 'sum',
         )
         self._normalize_embeddings = normalize_embeddings
+        self._scheme = scheme
         self._output_prefix = output_prefix
+        if self._scheme not in ('symmetric', 'cross_only'):
+            raise ValueError(f'Unknown fps scheme `{self._scheme}`')
 
     @classmethod
     def create_from_config(cls, config, **kwargs):
         return cls(
             fst_embeddings_prefix=config['fst_embeddings_prefix'],
             snd_embeddings_prefix=config['snd_embeddings_prefix'],
-            tau=config.get('temperature', 1.0), 
+            tau=config.get('temperature', 1.0),
             normalize_embeddings=config.get('normalize_embeddings', False),
             use_mean=config.get('use_mean', True),
+            scheme=config.get('scheme', 'symmetric'),
             output_prefix=config.get('output_prefix')
         )
 
@@ -98,6 +103,23 @@ class FpsLoss(TorchLoss, config_name='fps'):
         snd_embeddings = inputs[
             self._snd_embeddings_prefix
         ]  # (x, embedding_dim)
+
+        if self._scheme == 'cross_only':
+            # B x B: anchors = fst view, candidates = snd view only
+            # (one negative per other sample, not two)
+            if self._normalize_embeddings:
+                fst_embeddings = torch.nn.functional.normalize(
+                    fst_embeddings, p=2, dim=-1, eps=1e-6,
+                )
+                snd_embeddings = torch.nn.functional.normalize(
+                    snd_embeddings, p=2, dim=-1, eps=1e-6,
+                )
+            scores = torch.mm(fst_embeddings, snd_embeddings.T) / self._tau
+            labels = torch.arange(scores.shape[0], device=scores.device)
+            loss = self._loss_function(scores, labels)
+            if self._output_prefix is not None:
+                inputs[self._output_prefix] = loss.cpu().item()
+            return loss
 
         batch_size = fst_embeddings.shape[0]
 
@@ -190,6 +212,7 @@ class FpsLogQLoss(TorchLoss, config_name='fps_logq'):
         use_mean=True,
         mask_false_negatives=True,
         leave_own_out=False,
+        scheme='symmetric',
         output_prefix=None,
         num_draws_prefix=None,
     ):
@@ -207,7 +230,11 @@ class FpsLogQLoss(TorchLoss, config_name='fps_logq'):
         self._normalize_embeddings = normalize_embeddings
         self._mask_false_negatives = mask_false_negatives
         self._leave_own_out = leave_own_out
+        self._scheme = scheme
         self._output_prefix = output_prefix
+
+        if self._scheme not in ('symmetric', 'cross_only'):
+            raise ValueError(f'Unknown fps_logq scheme `{self._scheme}`')
 
         if self._leave_own_out and not self._mask_false_negatives:
             raise ValueError(
@@ -259,26 +286,46 @@ class FpsLogQLoss(TorchLoss, config_name='fps_logq'):
             use_mean=config.get('use_mean', True),
             mask_false_negatives=config.get('mask_false_negatives', True),
             leave_own_out=config.get('leave_own_out', False),
+            scheme=config.get('scheme', 'symmetric'),
             output_prefix=config.get('output_prefix'),
             num_draws_prefix=config.get('num_draws_prefix'),
         )
 
-    def _candidate_log_q(self, ids, num_negative_draws, device):
+    def _sample_log_q(self, ids, num_negative_draws, device):
         if self._logq_probability_mode == 'sample':
-            sample_log_q = self._log_q_table.to(device=device)[ids]
+            return self._log_q_table.to(device=device)[ids]  # (B,)
+        sample_probs = self._prob_table.to(device=device)[ids]
+        if num_negative_draws <= 0:
+            sample_q = torch.full_like(sample_probs, 1e-10)
         else:
-            sample_probs = self._prob_table.to(device=device)[ids]
-            if num_negative_draws <= 0:
-                sample_q = torch.full_like(sample_probs, 1e-10)
-            else:
-                sample_q = 1.0 - torch.pow(1.0 - sample_probs, num_negative_draws)
-                sample_q = torch.clamp(sample_q, min=1e-10)
-            sample_log_q = torch.log(sample_q)
+            sample_q = 1.0 - torch.pow(1.0 - sample_probs, num_negative_draws)
+            sample_q = torch.clamp(sample_q, min=1e-10)
+        return torch.log(sample_q)  # (B,)
 
+    def _candidate_log_q(self, ids, num_negative_draws, device):
+        sample_log_q = self._sample_log_q(ids, num_negative_draws, device)
         return torch.cat(
             (sample_log_q, sample_log_q),
             dim=0,
         )  # (2 * B,)
+
+    def _loo_log_q_square(self, ids, num_negative_draws, device):
+        # (B, B): row = anchor, column = candidate; q'_a(j) = p_j / (1 - p_a)
+        sample_probs = self._prob_table.to(device=device)[ids]  # (B,)
+        anchor_keep = torch.clamp(1.0 - sample_probs, min=1e-10)
+        probs = sample_probs.unsqueeze(0) / anchor_keep.unsqueeze(1)
+        probs = torch.clamp(probs, min=1e-10, max=1.0)
+        if self._logq_probability_mode == 'sample':
+            return torch.log(probs)
+        if num_negative_draws <= 0:
+            sample_q = torch.full_like(probs, 1e-10)
+        else:
+            sample_q = 1.0 - torch.pow(
+                torch.clamp(1.0 - probs, min=0.0),
+                num_negative_draws,
+            )
+            sample_q = torch.clamp(sample_q, min=1e-10)
+        return torch.log(sample_q)
 
     def _candidate_log_q_leave_own_out(self, ids, num_negative_draws, device):
         # q'_anchor(v) = count(v) / (S - count(anchor)) = p(v) / (1 - p(anchor)):
@@ -317,6 +364,51 @@ class FpsLogQLoss(TorchLoss, config_name='fps_logq'):
             raise ValueError(
                 f'FpsLogQLoss got {ids.shape[0]} ids for batch size {batch_size}'
             )
+
+        if self._scheme == 'cross_only':
+            # B x B: anchors = fst view, candidates = snd view only
+            # (one negative per other sample, not two)
+            if self._normalize_embeddings:
+                fst_embeddings = torch.nn.functional.normalize(
+                    fst_embeddings, p=2, dim=-1, eps=1e-6,
+                )
+                snd_embeddings = torch.nn.functional.normalize(
+                    snd_embeddings, p=2, dim=-1, eps=1e-6,
+                )
+            all_scores = torch.mm(fst_embeddings, snd_embeddings.T) / self._tau
+            device = all_scores.device
+            ids = ids.to(device=device)
+            if self._num_draws_prefix is not None:
+                num_negative_draws = int(inputs[self._num_draws_prefix])
+            else:
+                num_negative_draws = batch_size - 1
+
+            if self._leave_own_out:
+                candidate_log_q = self._loo_log_q_square(
+                    ids, num_negative_draws, device,
+                )  # (B, B)
+                all_scores = all_scores - self._logq_lambda * candidate_log_q
+                positive_log_q = candidate_log_q.diagonal()
+            else:
+                candidate_log_q = self._sample_log_q(
+                    ids, num_negative_draws, device,
+                )  # (B,)
+                all_scores = all_scores - self._logq_lambda * candidate_log_q.unsqueeze(0)
+                positive_log_q = candidate_log_q
+
+            # the paired positive (diagonal) is observed, not sampled
+            all_scores.diagonal().add_(self._logq_lambda * positive_log_q)
+
+            if self._mask_false_negatives:
+                false_negative_mask = ids.unsqueeze(0) == ids.unsqueeze(1)
+                false_negative_mask.fill_diagonal_(False)
+                all_scores = all_scores.masked_fill(false_negative_mask, -1e12)
+
+            labels = torch.arange(batch_size, device=device)
+            loss = self._loss_function(all_scores, labels)
+            if self._output_prefix is not None:
+                inputs[self._output_prefix] = loss.cpu().item()
+            return loss
 
         combined_embeddings = torch.cat(
             (fst_embeddings, snd_embeddings),
@@ -662,6 +754,8 @@ class MCLSRLogqInBatchLoss(TorchLoss, config_name='mclsr_logq_inbatch'):
         path_to_item_counts,
         logq_lambda=1.0,
         leave_own_out=False,
+        normalize_embeddings=False,
+        temperature=1.0,
         output_prefix=None,
         user_ids_prefix=None,
     ):
@@ -673,6 +767,8 @@ class MCLSRLogqInBatchLoss(TorchLoss, config_name='mclsr_logq_inbatch'):
         self._output_prefix = output_prefix
         self._logq_lambda = logq_lambda
         self._leave_own_out = leave_own_out
+        self._normalize_embeddings = normalize_embeddings
+        self._temperature = temperature
 
         if not os.path.exists(path_to_item_counts):
             raise FileNotFoundError(f"Item counts file not found at {path_to_item_counts}")
@@ -695,6 +791,8 @@ class MCLSRLogqInBatchLoss(TorchLoss, config_name='mclsr_logq_inbatch'):
             path_to_item_counts=config['path_to_item_counts'],
             logq_lambda=config.get('logq_lambda', 1.0),
             leave_own_out=config.get('leave_own_out', False),
+            normalize_embeddings=config.get('normalize_embeddings', False),
+            temperature=config.get('temperature', 1.0),
             output_prefix=config.get('output_prefix'),
             user_ids_prefix=config.get('user_ids_prefix'),
         )
@@ -711,10 +809,18 @@ class MCLSRLogqInBatchLoss(TorchLoss, config_name='mclsr_logq_inbatch'):
 
         batch_size = queries.size(0)
 
+        if self._normalize_embeddings:
+            queries = torch.nn.functional.normalize(
+                queries, p=2, dim=-1, eps=1e-6,
+            )
+            pos_embs = torch.nn.functional.normalize(
+                pos_embs, p=2, dim=-1, eps=1e-6,
+            )
+
         # All-pairs scores: each query against all positive items in batch
         # all_scores[i, j] = query_i · pos_emb_j
         # Diagonal (i, i) = positive score, off-diagonal = in-batch negatives
-        all_scores = torch.mm(queries, pos_embs.T)  # (B, B)
+        all_scores = torch.mm(queries, pos_embs.T) / self._temperature  # (B, B)
 
         # LogQ correction on negatives only:
         # 1) Apply correction to ALL candidates (columns)

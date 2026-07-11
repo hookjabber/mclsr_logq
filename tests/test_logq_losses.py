@@ -154,6 +154,76 @@ def test_leave_own_out_requires_masking():
     raise AssertionError('expected ValueError')
 
 
+def reference_fps_cross(fst, snd, tau, lam, mask_fn, loo, n_draws):
+    prob = _probs()
+    scores = (fst.detach().double() @ snd.double().T) / tau
+    corr = torch.zeros(B, B, dtype=torch.float64)
+    for a in range(B):
+        for j in range(B):
+            pj = prob[FPS_IDS[j]]
+            if loo:
+                pj = torch.clamp(pj / torch.clamp(1 - prob[FPS_IDS[a]], min=1e-10), min=1e-10, max=1.0)
+            q = 1.0 - (1.0 - pj) ** n_draws
+            corr[a, j] = torch.log(torch.clamp(q, min=1e-10))
+    scores = scores - lam * corr
+    for a in range(B):
+        scores[a, a] += lam * corr[a, a]
+    for a in range(B):
+        for j in range(B):
+            if a != j and mask_fn and FPS_IDS[a] == FPS_IDS[j]:
+                scores[a, j] = -1e12
+    return torch.nn.functional.cross_entropy(scores.float(), torch.arange(B))
+
+
+def test_fps_logq_cross_only_matches_reference():
+    torch.manual_seed(3)
+    path = _counts_path()
+    fst = torch.randn(B, D, requires_grad=True)
+    snd = torch.randn(B, D)
+    for lam, loo in [(1.0, False), (1.0, True), (0.0, False)]:
+        loss = FpsLogQLoss(
+            fst_embeddings_prefix='f', snd_embeddings_prefix='s', ids_prefix='i',
+            path_to_counts=path, tau=0.5, logq_lambda=lam,
+            mask_false_negatives=True, leave_own_out=loo, scheme='cross_only',
+        )
+        got = loss({'f': fst, 's': snd, 'i': FPS_IDS})
+        want = reference_fps_cross(fst, snd, 0.5, lam, True, loo, B - 1)
+        assert torch.allclose(got, want, atol=1e-4), (lam, loo, got.item(), want.item())
+    got.backward()
+    assert torch.isfinite(fst.grad).all()
+
+
+def test_inbatch_cosine_temperature_matches_reference():
+    torch.manual_seed(4)
+    path = _counts_path()
+    q = torch.randn(B, D, requires_grad=True)
+    p_emb = torch.randn(B, D)
+    tau = 0.1
+    loss = MCLSRLogqInBatchLoss(
+        queries_prefix='q', positive_prefix='p', positive_ids_prefix='pid',
+        path_to_item_counts=path, logq_lambda=1.0,
+        normalize_embeddings=True, temperature=tau, user_ids_prefix='uid',
+    )
+    got = loss({'q': q, 'p': p_emb, 'pid': POS_IDS, 'uid': USER_IDS})
+
+    prob = _probs()
+    qn = torch.nn.functional.normalize(q.detach().double(), dim=-1)
+    pn = torch.nn.functional.normalize(p_emb.double(), dim=-1)
+    s = (qn @ pn.T) / tau
+    for i in range(B):
+        for j in range(B):
+            if i != j:
+                s[i, j] = s[i, j] - torch.log(prob[POS_IDS[j]])
+    for i in range(B):
+        for j in range(B):
+            if i != j and (POS_IDS[i] == POS_IDS[j] or USER_IDS[i] == USER_IDS[j]):
+                s[i, j] = -1e12
+    want = torch.nn.functional.cross_entropy(s.float(), torch.arange(B))
+    assert torch.allclose(got, want, atol=1e-4), (got.item(), want.item())
+    got.backward()
+    assert torch.isfinite(q.grad).all()
+
+
 if __name__ == '__main__':
     for name, fn in sorted(globals().items()):
         if name.startswith('test_'):
