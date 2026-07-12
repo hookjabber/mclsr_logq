@@ -102,3 +102,42 @@ paired arms always run on one node, and final tables should use 3 seeds.
 |---|---|
 | retrieval (sampled/in-batch softmax over a catalog) | logQ on **negatives only**; leave-own-out q' only matters when one id holds a visible share of the data |
 | contrastive alignment (SimCLR-style views) | **no correction**; if one is ever applied, use a margin-free form (centered / positive-corrected) and cosine scoring |
+
+## 6. The candidate-generation view: recall@1000
+
+Deep-recall (does the relevant item make it into a wide candidate pool) reshuffles
+the picture in instructive ways. Noise floor at this scale: ~±0.004 (the identical
+June pair spread). Best test `recall@1000`:
+
+| retrieval variant | recall@1000 |
+|---|---|
+| 01 in-batch, no correction | 0.2606 |
+| 02 in-batch + logQ | 0.3120 (+20%) |
+| 02 + q' | 0.3166 |
+| **14 exact full softmax** | 0.3269 |
+| 02 cosine τ=0.1 | 0.3248 |
+| **02 cosine τ=0.5** | **0.3290** |
+| 02 cosine τ=1 | 0.2971 |
+
+| graph / contrastive variant | recall@1000 |
+|---|---|
+| 03 (logQ downstream only) | 0.3611 |
+| 04 λ=1 on L_IL (two runs) | 0.3534 / 0.3494 |
+| 04 centered / positive-corrected | 0.3575 / 0.3600 |
+| 03 shared projector | 0.3659 |
+| 05 full model, no logQ on contrastive | 0.3612 |
+| 06 + logQ on L_UC/L_IC | 0.3643 / 0.3646 |
+| 09 → 10 (L_IC λ=0 → λ=1) | 0.3168 → **0.3263** |
+
+Takeaways:
+- the core story holds at @1000: the correction is the single biggest win, and
+  logQ on L_IL still does not beat no-correction;
+- unlike ndcg@20 (where in-batch+logQ = exact softmax), at recall@1000 the exact
+  full softmax keeps a ~5% edge over in-batch+logQ — the correction closes most
+  but not all of the tail gap;
+- **stronger effective correction buys tail recall at the cost of top precision**:
+  cosine τ=0.5 is the champion candidate generator (0.3290, above even the exact
+  softmax) while being the worst top-20 ranker (0.0169); logQ on L_IC helps the
+  tail (+0.0095) while being neutral at @20. Correction strength is a dial on a
+  precision@20 ↔ recall@1000 frontier — pick the operating point per application
+  stage (ranking vs candidate generation).
