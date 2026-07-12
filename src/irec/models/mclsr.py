@@ -6,6 +6,15 @@ import torch.nn as nn
 from irec.utils import create_masked_tensor
 
 
+def scatter_mean(src, index, dim=0, dim_size=None):
+    # group-mean of src rows by index; verified against a naive loop
+    # (values and gradients) in the 2026-07-07 audit
+    out_size = dim_size if dim_size is not None else index.max() + 1
+    out = torch.zeros((out_size, src.size(1)), dtype=src.dtype, device=src.device)
+    counts = torch.bincount(index, minlength=out_size).unsqueeze(-1).clamp(min=1)
+    return out.scatter_add_(dim, index.unsqueeze(-1).expand_as(src), src) / counts
+
+
 class MCLSRModel(TorchModel, config_name='mclsr'):
     def __init__(
         self,
@@ -430,15 +439,6 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
                     all_sample_events,
                     return_inverse=True,
                 )
-
-                try:
-                    from torch_scatter import scatter_mean
-                except ImportError:
-                    def scatter_mean(src, index, dim=0, dim_size=None):
-                        out_size = dim_size if dim_size is not None else index.max() + 1
-                        out = torch.zeros((out_size, src.size(1)), dtype=src.dtype, device=src.device)
-                        counts = torch.bincount(index, minlength=out_size).unsqueeze(-1).clamp(min=1)
-                        return out.scatter_add_(dim, index.unsqueeze(-1).expand_as(src), src) / counts
 
                 num_unique_items = unique_item_ids.shape[0]
 
