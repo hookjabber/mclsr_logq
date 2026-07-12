@@ -6,6 +6,8 @@ same GPU node, full-catalog ranking, standard NDCG normalization (a ComiRec-styl
 Measured run-to-run noise floor: **±0.0005–0.001** — differences within it are ties.
 Configs live in `configs/train/grid/`, one question per config.
 
+![Precision vs tail-recall frontier](assets/frontier.png)
+
 ## 1. Retrieval loss (L_P): the correction works and is exact
 
 | config | val | test | note |
@@ -46,6 +48,8 @@ Base = 03 (graph + L_IL + downstream logQ). λ sweep shows a dose response; ever
 | 04 λ=1 **centered** (margin removed) | 0.0286 | 0.0269 | **~25k** |
 | 04 λ=1 **positive also corrected** | 0.0289 | 0.0266 | ~25k |
 | 04 λ=1 + **cosine** similarity | 0.0295 | 0.0271 | ~13k |
+
+![L_IL anatomy](assets/lil_anatomy.png)
 
 Mechanism: with the negatives-only convention the common part of the correction
 (~5.6 nats, vs ±0.4 of actual per-user reweighting) becomes an uncancelled margin.
