@@ -27,7 +27,7 @@ This repository hosts a systematic study of the **logQ sampling-bias correction*
 multi-loss graph-contrastive recommender (MCLSR, CIKM'22): where the correction helps
 (in-batch retrieval), where it does not (contrastive alignment losses), and why. Every
 loss variant is locked in by reference tests, and every experiment is a single JSON
-config away.
+config away. **All experiment results with verdicts: [RESULTS.md](./RESULTS.md).**
 
 ## Repository layout
 
