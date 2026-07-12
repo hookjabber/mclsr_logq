@@ -7,6 +7,9 @@
 </p>
 
 <p align="center">
+   <a href="../../actions/workflows/tests.yml">
+      <img src="../../actions/workflows/tests.yml/badge.svg" alt="Tests">
+   </a>
    <a>
       <img src="https://img.shields.io/badge/python-3.12-blue?logo=python" alt="Python version">
    </a>
@@ -19,6 +22,23 @@
 </p>
 
 **IRec** is a config-driven PyTorch framework for reproducible research in sequential and graph-based recommendation.
+
+This repository hosts a systematic study of the **logQ sampling-bias correction** in a
+multi-loss graph-contrastive recommender (MCLSR, CIKM'22): where the correction helps
+(in-batch retrieval), where it does not (contrastive alignment losses), and why. Every
+loss variant is locked in by reference tests, and every experiment is a single JSON
+config away.
+
+## Repository layout
+
+| path | what |
+|---|---|
+| `configs/train/grid/` | the maintained experiment grid (numbered, one question per config) |
+| `configs/train/legacy/` | historical configs kept for provenance |
+| `src/irec/` | framework: models, losses, datasets, metrics, callbacks |
+| `scripts/` | count-table generation, run summarization, checkpoint evaluation |
+| `tests/` | reference tests for the logQ losses + config validation (run in CI) |
+| `notebooks/` | dataset preprocessing |
 
 ## Installation
 
@@ -74,6 +94,18 @@ The script has 1 input argument: `params` which is the path to the json file wit
 -`callbacks` Different additional traning 
 
 -`use_wandb` Enable Weights & Biases logging for experiment tracking
+
+## Tests
+
+Every logQ loss variant (q / q' / λ=0, both masking modes, cross-only scheme, cosine
+scoring, the full-softmax anchors) is checked against an independent naive reference
+implementation — values and gradients. Config validation catches a broken config in
+seconds instead of hours into a run. Both suites run in CI on every push:
+
+```bash
+python tests/test_logq_losses.py
+python tests/test_configs.py
+```
 
 ## Reproducing the logQ study
 
