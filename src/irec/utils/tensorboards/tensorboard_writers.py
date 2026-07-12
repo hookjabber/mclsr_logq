@@ -14,7 +14,9 @@ class TensorboardWriter(SummaryWriter):
         super().__init__(
             log_dir=os.path.join(
                 LOGS_DIR,
-                f'{experiment_name}_{datetime.datetime.now().strftime("%Y-%m-%dT%H:%M" if use_time else "")}',
+                # seconds included: two same-config runs started within one
+                # minute must not share a log dir
+                f'{experiment_name}_{datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S" if use_time else "")}',
             ),
         )
 
