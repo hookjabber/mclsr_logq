@@ -184,6 +184,14 @@
           "hit@1000": {
             "type": "mclsr-hit",
             "k": 1000
+          },
+          "comirec-ndcg@20": {
+            "type": "comirec-ndcg",
+            "k": 20
+          },
+          "comirec-ndcg@50": {
+            "type": "comirec-ndcg",
+            "k": 50
           }
         }
       },
@@ -256,6 +264,14 @@
           "hit@1000": {
             "type": "mclsr-hit",
             "k": 1000
+          },
+          "comirec-ndcg@20": {
+            "type": "comirec-ndcg",
+            "k": 20
+          },
+          "comirec-ndcg@50": {
+            "type": "comirec-ndcg",
+            "k": 50
           }
         }
       }

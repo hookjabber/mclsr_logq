@@ -18,5 +18,7 @@ jobs:
           pip install numpy scipy tensorboard tqdm
       - name: Loss reference tests
         run: python tests/test_logq_losses.py
+      - name: Metric reference tests
+        run: python tests/test_metrics.py
       - name: Config validation
         run: python tests/test_configs.py
