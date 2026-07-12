@@ -74,3 +74,33 @@ The script has 1 input argument: `params` which is the path to the json file wit
 -`callbacks` Different additional traning 
 
 -`use_wandb` Enable Weights & Biases logging for experiment tracking
+
+## Reproducing the logQ study
+
+```bash
+# 1. Environment (Python >= 3.12)
+uv venv && uv pip install -e .
+
+# 2. Data: run notebooks/AmazonClothingDatasetUserSplit.ipynb -> data/Clothing/*.txt
+
+# 3. Count tables for the logQ correction
+python scripts/generate_item_counts.py --input data/Clothing/train_sasrec.txt \
+    --output data/Clothing/item_counts.pkl --num_items 23033
+python scripts/generate_user_counts.py --input data/Clothing/train_mclsr.txt \
+    --output data/Clothing/user_counts.pkl
+
+# 4. Loss correctness tests (reference implementations)
+python tests/test_logq_losses.py
+
+# 5. Training (the maintained grid lives in configs/train/grid/)
+train --params configs/train/grid/03_graph.json
+
+# 6. Results summary across runs
+python scripts/summarize_runs.py
+```
+
+Key config knobs: `logq_lambda` (correction strength), `leave_own_out` (q' under
+false-negative masking), `scheme: cross_only` (BxB contrastive), `normalize_embeddings`
++ `temperature` (cosine scoring), `seed` / `deterministic`. Graph caches
+(`data/*/**.npz`) are keyed by filename and only need deleting when the interaction
+data or the graph-building code changes.
