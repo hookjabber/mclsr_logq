@@ -147,6 +147,47 @@ class MCLSRNDCGMetric(BaseMetric, config_name='mclsr-ndcg'):
         return dcg_scores
 
 
+class ComiRecNDCGMetric(BaseMetric, config_name='comirec-ndcg'):
+    """
+    NDCG with the ComiRec normalization (used by the MCLSR paper, Table 2):
+    IDCG is computed over the number of ACTUAL hits, not over the ideal
+    min(k, num_targets). Yields values >= the standard NDCG; needed for
+    apples-to-apples comparison with the paper's reported numbers.
+    """
+    def __init__(self, k):
+        self._k = k
+
+    def __call__(self, inputs, pred_prefix, labels_prefix):
+        predictions = inputs[pred_prefix]
+        assert predictions.shape[1] >= self._k
+        predictions = predictions[:, :self._k]
+        labels_flat = inputs[f'{labels_prefix}.ids']
+        labels_lengths = inputs[f'{labels_prefix}.length']
+
+        assert predictions.shape[0] == labels_lengths.shape[0]
+
+        scores = []
+        offset = 0
+        weights = 1 / torch.log2(
+            torch.arange(2, self._k + 2, device=predictions.device).float(),
+        )
+        for i in range(predictions.shape[0]):
+            num_user_labels = int(labels_lengths[i].item())
+            user_labels = labels_flat[offset : offset + num_user_labels]
+            offset += num_user_labels
+
+            hits_mask = torch.isin(predictions[i], user_labels)
+            num_hits = int(hits_mask.sum().item())
+            if num_hits == 0:
+                scores.append(0.0)
+                continue
+            dcg = (hits_mask.float() * weights).sum()
+            idcg = weights[:num_hits].sum()
+            scores.append((dcg / idcg).cpu().item())
+
+        return scores
+
+
 class MCLSRRecallMetric(BaseMetric, config_name='mclsr-recall'):
     def __init__(self, k):
         self._k = k
