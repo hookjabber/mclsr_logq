@@ -228,6 +228,25 @@ def test_inbatch_cosine_temperature_matches_reference():
     assert torch.isfinite(q.grad).all()
 
 
+def test_fps_paper_scheme_matches_manual():
+    """Paper eq. 8: anchors = fst only, candidates = all snd + other fst."""
+    from irec.loss.base import FpsLoss
+    torch.manual_seed(6)
+    fst = torch.randn(B, D, requires_grad=True)
+    snd = torch.randn(B, D)
+    loss = FpsLoss('f', 's', tau=0.5, scheme='paper')
+    got = loss({'f': fst, 's': snd})
+
+    cand = torch.cat((snd, fst.detach()), dim=0)
+    s = (fst.detach() @ cand.T) / 0.5
+    for i in range(B):
+        s[i, B + i] = -1e12  # own fst copy masked
+    want = torch.nn.functional.cross_entropy(s, torch.arange(B))
+    assert torch.allclose(got, want, atol=1e-5), (got.item(), want.item())
+    got.backward()
+    assert torch.isfinite(fst.grad).all()
+
+
 def test_contrastive_full_softmax_matches_manual():
     torch.manual_seed(5)
     num_entities = 12  # table size = entities + 2 (padding + mask)

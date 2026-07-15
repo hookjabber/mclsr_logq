@@ -81,7 +81,7 @@ class FpsLoss(TorchLoss, config_name='fps'):
         self._normalize_embeddings = normalize_embeddings
         self._scheme = scheme
         self._output_prefix = output_prefix
-        if self._scheme not in ('symmetric', 'cross_only'):
+        if self._scheme not in ('symmetric', 'cross_only', 'paper'):
             raise ValueError(f'Unknown fps scheme `{self._scheme}`')
 
     @classmethod
@@ -104,9 +104,7 @@ class FpsLoss(TorchLoss, config_name='fps'):
             self._snd_embeddings_prefix
         ]  # (x, embedding_dim)
 
-        if self._scheme == 'cross_only':
-            # B x B: anchors = fst view, candidates = snd view only
-            # (one negative per other sample, not two)
+        if self._scheme in ('cross_only', 'paper'):
             if self._normalize_embeddings:
                 fst_embeddings = torch.nn.functional.normalize(
                     fst_embeddings, p=2, dim=-1, eps=1e-6,
@@ -114,7 +112,19 @@ class FpsLoss(TorchLoss, config_name='fps'):
                 snd_embeddings = torch.nn.functional.normalize(
                     snd_embeddings, p=2, dim=-1, eps=1e-6,
                 )
-            scores = torch.mm(fst_embeddings, snd_embeddings.T) / self._tau
+            if self._scheme == 'cross_only':
+                # B x B: anchors = fst view, candidates = snd view only
+                # (one negative per other sample)
+                scores = torch.mm(fst_embeddings, snd_embeddings.T) / self._tau
+            else:
+                # paper eq. 8: anchors = fst view only; candidates = ALL
+                # snd-view rows + other fst-view rows -> B x (2B-1) after
+                # masking the anchor's own fst column
+                candidates = torch.cat((snd_embeddings, fst_embeddings), dim=0)
+                scores = torch.mm(fst_embeddings, candidates.T) / self._tau
+                n = fst_embeddings.shape[0]
+                idx = torch.arange(n, device=scores.device)
+                scores[idx, n + idx] = -1e12  # own fst copy is not a negative
             labels = torch.arange(scores.shape[0], device=scores.device)
             loss = self._loss_function(scores, labels)
             if self._output_prefix is not None:
