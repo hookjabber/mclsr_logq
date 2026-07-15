@@ -247,6 +247,45 @@ def test_fps_paper_scheme_matches_manual():
     assert torch.isfinite(fst.grad).all()
 
 
+def test_matched_full_softmax_matches_manual():
+    """Symmetric full-catalog loss vs naive reference (incl. non-train mask)."""
+    from irec.loss.base import MatchedContrastiveFullSoftmaxLoss
+    torch.manual_seed(7)
+    n_ent = 10  # table size = n_ent + 2
+    counts = [1.0, 5.0, 3.0, 1.0, 7.0, 2.0, 4.0, 6.0, 2.0, 3.0, 5.0, 1.0]
+    # invalid columns (count<=1): 0 (padding), 3 (ghost), 11 (mask token)
+    path = tempfile.NamedTemporaryFile(suffix='.pkl', delete=False)
+    pickle.dump(torch.tensor(counts).numpy(), path); path.close()
+
+    Bn = 4
+    ids = torch.tensor([1, 2, 4, 2])  # duplicate anchor id=2 allowed
+    fa, sa = torch.randn(Bn, D, requires_grad=True), torch.randn(Bn, D)
+    ft, st = torch.randn(n_ent + 2, D), torch.randn(n_ent + 2, D)
+    loss = MatchedContrastiveFullSoftmaxLoss(
+        fst_anchors_prefix='fa', snd_anchors_prefix='sa',
+        fst_table_prefix='ft', snd_table_prefix='st',
+        ids_prefix='i', path_to_counts=path.name, tau=0.5,
+    )
+    got = loss({'fa': fa, 'sa': sa, 'ft': ft, 'st': st, 'i': ids})
+
+    def direction(anchors, other, same):
+        s = torch.cat((anchors.detach() @ other.T, anchors.detach() @ same.T), dim=1) / 0.5
+        N = other.shape[0]
+        for c, cnt in enumerate(counts):
+            if cnt <= 1.0:
+                s[:, c] = -1e12
+                s[:, N + c] = -1e12
+        for r in range(Bn):
+            s[r, N + ids[r]] = -1e12
+        return s
+
+    s_all = torch.cat((direction(fa, st, ft), direction(sa, ft, st)), dim=0)
+    want = torch.nn.functional.cross_entropy(s_all, torch.cat((ids, ids))) / 2
+    assert torch.allclose(got, want, atol=1e-5), (got.item(), want.item())
+    got.backward()
+    assert torch.isfinite(fa.grad).all()
+
+
 def test_contrastive_full_softmax_matches_manual():
     torch.manual_seed(5)
     num_entities = 12  # table size = entities + 2 (padding + mask)

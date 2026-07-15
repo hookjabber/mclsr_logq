@@ -873,6 +873,112 @@ class MCLSRLogqInBatchLoss(TorchLoss, config_name='mclsr_logq_inbatch'):
         return loss
 
 
+class MatchedContrastiveFullSoftmaxLoss(
+    TorchLoss, config_name='contrastive_full_softmax_matched',
+):
+    """
+    Full-catalog analog of the SYMMETRIC in-batch FpsLoss (matched objective).
+
+    Anchors = both batch views (2B rows, like FpsLoss). For each anchor the
+    candidates are the FULL other-view table plus the FULL same-view table with
+    the anchor's own same-view row masked; the positive is the anchor's own row
+    in the other-view table. Non-train entities (count <= 1 in the counts table,
+    which also covers padding and mask ids) are masked out of both tables.
+    Reduction: mean cross-entropy over the 2B anchors, divided by 2 — the same
+    convention as FpsLoss, so the two losses differ ONLY in the candidate pool
+    (full catalog vs in-batch).
+    """
+    def __init__(
+        self,
+        fst_anchors_prefix,
+        snd_anchors_prefix,
+        fst_table_prefix,
+        snd_table_prefix,
+        ids_prefix,
+        path_to_counts,
+        tau=1.0,
+        use_mean=True,
+        output_prefix=None,
+    ):
+        super().__init__()
+        self._fst_anchors_prefix = fst_anchors_prefix
+        self._snd_anchors_prefix = snd_anchors_prefix
+        self._fst_table_prefix = fst_table_prefix
+        self._snd_table_prefix = snd_table_prefix
+        self._ids_prefix = ids_prefix
+        self._tau = tau
+        self._loss_function = nn.CrossEntropyLoss(
+            reduction='mean' if use_mean else 'sum',
+        )
+        self._output_prefix = output_prefix
+
+        if not os.path.exists(path_to_counts):
+            raise FileNotFoundError(f"Counts file not found at {path_to_counts}")
+        with open(path_to_counts, 'rb') as f:
+            counts = pickle.load(f)
+        # count <= 1 marks non-train entities (zero-filled ghosts, padding, mask)
+        self.register_buffer(
+            '_invalid_columns',
+            torch.tensor(counts, dtype=torch.float32) <= 1.0,
+        )
+
+    @classmethod
+    def create_from_config(cls, config, **kwargs):
+        return cls(
+            fst_anchors_prefix=config['fst_anchors_prefix'],
+            snd_anchors_prefix=config['snd_anchors_prefix'],
+            fst_table_prefix=config['fst_table_prefix'],
+            snd_table_prefix=config['snd_table_prefix'],
+            ids_prefix=config['ids_prefix'],
+            path_to_counts=config['path_to_counts'],
+            tau=config.get('temperature', 1.0),
+            use_mean=config.get('use_mean', True),
+            output_prefix=config.get('output_prefix'),
+        )
+
+    def _direction_scores(self, anchors, other_table, same_table, ids, invalid):
+        # (B, 2N): [other-view table || same-view table]
+        scores = torch.cat(
+            (
+                torch.mm(anchors, other_table.T),
+                torch.mm(anchors, same_table.T),
+            ),
+            dim=1,
+        ) / self._tau
+        n = other_table.shape[0]
+        scores = scores.masked_fill(
+            torch.cat((invalid, invalid), dim=0).unsqueeze(0), -1e12,
+        )
+        rows = torch.arange(anchors.shape[0], device=scores.device)
+        scores[rows, n + ids] = -1e12  # the anchor's own same-view row
+        return scores  # positive = column `ids` (other-view block)
+
+    def forward(self, inputs):
+        fst_anchors = inputs[self._fst_anchors_prefix]  # (B, D)
+        snd_anchors = inputs[self._snd_anchors_prefix]  # (B, D)
+        fst_table = inputs[self._fst_table_prefix]      # (N, D)
+        snd_table = inputs[self._snd_table_prefix]      # (N, D)
+        ids = inputs[self._ids_prefix].reshape(-1)      # (B,)
+
+        invalid = self._invalid_columns.to(fst_table.device)
+
+        scores_fst = self._direction_scores(
+            fst_anchors, snd_table, fst_table, ids, invalid,
+        )
+        scores_snd = self._direction_scores(
+            snd_anchors, fst_table, snd_table, ids, invalid,
+        )
+        all_scores = torch.cat((scores_fst, scores_snd), dim=0)  # (2B, 2N)
+        labels = torch.cat((ids, ids), dim=0)
+
+        loss = self._loss_function(all_scores, labels) / 2
+
+        if self._output_prefix:
+            inputs[self._output_prefix] = loss.cpu().item()
+
+        return loss
+
+
 class ContrastiveFullSoftmaxLoss(TorchLoss, config_name='contrastive_full_softmax'):
     """
     Exact full-catalog contrastive anchor.

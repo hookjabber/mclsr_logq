@@ -420,9 +420,12 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
                     'common_graph_user_embeddings': self._user_projection(common_graph_user_embs_batch),
                 })
                 if self._output_full_contrastive_tables:
-                    # full uu-view table for the exact-softmax contrastive anchor
+                    # full tables of BOTH user views for full-catalog contrastive
                     outputs['user_graph_user_table'] = self._user_projection(
                         user_graph_user_embs_all,
+                    )
+                    outputs['common_graph_user_table'] = self._user_projection(
+                        common_graph_user_embs_all,
                     )
 
             if self._item_graph is not None:
@@ -465,9 +468,12 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
                     ),
                 })
                 if self._output_full_contrastive_tables:
-                    # full ii-view table for the exact-softmax contrastive anchor
+                    # full tables of BOTH item views for full-catalog contrastive
                     outputs['item_graph_item_table'] = self._item_projection(
                         item_graph_items_all,
+                    )
+                    outputs['common_graph_item_table'] = self._item_projection(
+                        common_graph_item_embs_all,
                     )
 
             return outputs
