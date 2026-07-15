@@ -882,11 +882,13 @@ class MatchedContrastiveFullSoftmaxLoss(
     Anchors = both batch views (2B rows, like FpsLoss). For each anchor the
     candidates are the FULL other-view table plus the FULL same-view table with
     the anchor's own same-view row masked; the positive is the anchor's own row
-    in the other-view table. Non-train entities (count <= 1 in the counts table,
-    which also covers padding and mask ids) are masked out of both tables.
-    Reduction: mean cross-entropy over the 2B anchors, divided by 2 — the same
-    convention as FpsLoss, so the two losses differ ONLY in the candidate pool
-    (full catalog vs in-batch).
+    in the other-view table. Entities absent from the training split (per the
+    explicit train-presence mask, which also excludes padding and mask ids) are
+    masked out of both tables — NOT a count threshold: real train singletons
+    (count == 1) stay valid, otherwise their positives would be masked whenever
+    they appear as anchors. Reduction: mean cross-entropy over the 2B anchors,
+    divided by 2 — the same convention as FpsLoss, so the two losses differ
+    ONLY in the candidate pool (full catalog vs in-batch).
     """
     def __init__(
         self,
@@ -895,7 +897,7 @@ class MatchedContrastiveFullSoftmaxLoss(
         fst_table_prefix,
         snd_table_prefix,
         ids_prefix,
-        path_to_counts,
+        path_to_train_presence,
         tau=1.0,
         use_mean=True,
         output_prefix=None,
@@ -912,14 +914,15 @@ class MatchedContrastiveFullSoftmaxLoss(
         )
         self._output_prefix = output_prefix
 
-        if not os.path.exists(path_to_counts):
-            raise FileNotFoundError(f"Counts file not found at {path_to_counts}")
-        with open(path_to_counts, 'rb') as f:
-            counts = pickle.load(f)
-        # count <= 1 marks non-train entities (zero-filled ghosts, padding, mask)
+        if not os.path.exists(path_to_train_presence):
+            raise FileNotFoundError(
+                f"Train presence mask not found at {path_to_train_presence}"
+            )
+        with open(path_to_train_presence, 'rb') as f:
+            presence = pickle.load(f)
         self.register_buffer(
             '_invalid_columns',
-            torch.tensor(counts, dtype=torch.float32) <= 1.0,
+            ~torch.tensor(presence, dtype=torch.bool),
         )
 
     @classmethod
@@ -930,7 +933,7 @@ class MatchedContrastiveFullSoftmaxLoss(
             fst_table_prefix=config['fst_table_prefix'],
             snd_table_prefix=config['snd_table_prefix'],
             ids_prefix=config['ids_prefix'],
-            path_to_counts=config['path_to_counts'],
+            path_to_train_presence=config['path_to_train_presence'],
             tau=config.get('temperature', 1.0),
             use_mean=config.get('use_mean', True),
             output_prefix=config.get('output_prefix'),

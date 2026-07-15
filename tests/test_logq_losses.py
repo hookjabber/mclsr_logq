@@ -248,31 +248,37 @@ def test_fps_paper_scheme_matches_manual():
 
 
 def test_matched_full_softmax_matches_manual():
-    """Symmetric full-catalog loss vs naive reference (incl. non-train mask)."""
+    """Symmetric full-catalog loss vs naive reference (incl. train-presence mask).
+
+    Regression case: id=1 is a TRAIN SINGLETON (count would be 1) — with the
+    presence-based mask it must stay a valid positive; the old count<=1 mask
+    poisoned such anchors with a -1e12 positive (loss ~1e12).
+    """
     from irec.loss.base import MatchedContrastiveFullSoftmaxLoss
     torch.manual_seed(7)
     n_ent = 10  # table size = n_ent + 2
-    counts = [1.0, 5.0, 3.0, 1.0, 7.0, 2.0, 4.0, 6.0, 2.0, 3.0, 5.0, 1.0]
-    # invalid columns (count<=1): 0 (padding), 3 (ghost), 11 (mask token)
+    # invalid: 0 (padding), 3 (truly absent from train), 11 (mask token)
+    presence = [False, True, True, False, True, True, True, True, True, True, True, False]
     path = tempfile.NamedTemporaryFile(suffix='.pkl', delete=False)
-    pickle.dump(torch.tensor(counts).numpy(), path); path.close()
+    pickle.dump(torch.tensor(presence).numpy(), path); path.close()
 
     Bn = 4
-    ids = torch.tensor([1, 2, 4, 2])  # duplicate anchor id=2 allowed
+    ids = torch.tensor([1, 2, 4, 2])  # id=1 = singleton-anchor; duplicate id=2 OK
     fa, sa = torch.randn(Bn, D, requires_grad=True), torch.randn(Bn, D)
     ft, st = torch.randn(n_ent + 2, D), torch.randn(n_ent + 2, D)
     loss = MatchedContrastiveFullSoftmaxLoss(
         fst_anchors_prefix='fa', snd_anchors_prefix='sa',
         fst_table_prefix='ft', snd_table_prefix='st',
-        ids_prefix='i', path_to_counts=path.name, tau=0.5,
+        ids_prefix='i', path_to_train_presence=path.name, tau=0.5,
     )
     got = loss({'fa': fa, 'sa': sa, 'ft': ft, 'st': st, 'i': ids})
+    assert got.item() < 100, f'singleton anchor positive was masked: loss={got.item()}'
 
     def direction(anchors, other, same):
         s = torch.cat((anchors.detach() @ other.T, anchors.detach() @ same.T), dim=1) / 0.5
         N = other.shape[0]
-        for c, cnt in enumerate(counts):
-            if cnt <= 1.0:
+        for c, present in enumerate(presence):
+            if not present:
                 s[:, c] = -1e12
                 s[:, N + c] = -1e12
         for r in range(Bn):

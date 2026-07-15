@@ -88,10 +88,10 @@
         "fst_table_prefix": "item_graph_item_table",
         "snd_table_prefix": "common_graph_item_table",
         "ids_prefix": "item_ids",
-        "path_to_counts": "./data/Clothing/item_counts.pkl",
         "temperature": 0.5,
         "output_prefix": "contrastive_item_feature_loss",
-        "weight": 0.05
+        "weight": 0.05,
+        "path_to_train_presence": "./data/Clothing/train_presence_items.pkl"
       }
     ],
     "output_prefix": "loss"
