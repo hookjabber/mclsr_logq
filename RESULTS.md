@@ -1,9 +1,14 @@
 # Experiment results: logQ correction study on MCLSR (Amazon Clothing)
 
 **Protocol.** The checkpoint is selected by the *validation* metric and the test
-metric is reported **at that checkpoint** (metric-matched selection: ndcg tables
-select by validation ndcg@20, the recall@1000 table selects by validation
-recall@1000). Single seed 42, same GPU node, full-catalog ranking over disjoint
+metric is taken from the **nearest logged test evaluation to that step** (test is
+evaluated every 256 steps, validation every 64 — so reported test values are an
+approximation within ±128 steps of the selected checkpoint). Selection is
+metric-matched: ndcg tables select by validation ndcg@20, the recall@1000 table by
+validation recall@1000. Because the test set was evaluated periodically throughout
+this study, all Clothing numbers are **exploratory**; confirmatory numbers will
+come from a pre-registered protocol (fixed configs, 3 seeds, test opened once) on
+a second dataset. Single seed 42, same GPU node, full-catalog ranking over disjoint
 test users (transductive user split 8:1:1, as in the MCLSR paper), standard NDCG
 normalization (`comirec-ndcg` is logged for comparison with the paper's tables).
 Run-to-run noise: **±0.001** ndcg@20 / **±0.005** recall@1000 — differences within
@@ -24,9 +29,9 @@ values; conclusions that changed are marked.)*
 | 02 + leave-own-out q' | 0.0253 | 0.0223 | = 02 (q' is a ≤1.6e-3 row constant here) |
 | **14 exact full softmax** (no sampling) | 0.0246 | 0.0222 | gold standard |
 
-**In-batch + logQ is statistically indistinguishable from the exact full softmax**
-(0.0230 vs 0.0222, within noise) — the correction recovers everything sampling
-takes away at top-20.
+**In-batch + logQ lands within the observed same-seed variation of the exact full
+softmax** (0.0230 vs 0.0222; single seed, multi-seed confirmation pending) — no
+material top-20 gap to the gold standard was observed.
 
 Same effect on a second architecture (SASRec, only λ changes):
 
@@ -73,10 +78,16 @@ the test-side comparison. Either way, no corrected variant beats "no correction"
 
 Sanity variants: shared L_IL projection head (paper eq. 7) — equal on validation
 (0.0279 vs 0.0276), lower on single-seed test (0.0255 vs 0.0272): unresolved at
-one seed. B×B cross-view scheme: **inconclusive** — the current B×B run also
-doubled the effective L_IL weight (the symmetric loss divides by 2), so scheme and
-weight are confounded; a weight-matched rerun is queued. Cosine similarity
-(paper eq. 8) = dot on quality (0.0267–0.0275), 2× faster convergence.
+one seed. **B×B cross-view scheme, weight-matched: val 0.0286 / test 0.0285 — the
+best single run in the study** (suggestive, single seed; the unmatched-weight B×B
+run scored 0.0283/0.0251 and is kept as a loss-weight robustness point). A
+paper-eq.-8 run (B×(2B−1), sequential-anchored) is paired against B×B to isolate
+exactly the one-vs-two-negatives-per-user factor. Cosine similarity (paper eq. 8)
+= dot on quality (0.0267–0.0275), 2× faster convergence.
+
+Note on q': on this seed the q'-corrected λ=1 run scored below plain λ=1
+(0.0242 vs 0.0257/0.0262) — q' does not rescue the drop and shows no benefit;
+"no-op" is confirmed only for the downstream loss (02_loo ≈ 02).
 
 ## 3. Feature-level contrastive L_UC / L_IC
 
@@ -94,11 +105,16 @@ anchor**: batch anchors scored against ALL users/items (no sampling at all).
 | 13 L_UC λ=1, no masking | 0.0230 | 0.0216 |
 | **15 L_UC exact full softmax** | 0.0236 | 0.0212 |
 
-The exact full softmax matches the in-batch versions on both branches — in-batch
-sampling loses nothing here. Under the honest protocol logQ shows a small
-*positive* test effect on both branches (+0.0013–0.0015, ≈1.5 noise units,
-single seed): harmless-to-mildly-useful, consistent with the tail-recall gains in
-section 6.
+Configs 15/16 are **preliminary cross-view full-catalog anchors**, not exact
+counterparts of the in-batch losses: they change the objective shape (one-direction,
+no same-view negatives), and the user table currently includes 7,878 non-train
+users whose graph embeddings are degenerate (train-only graph) — a known flaw to
+fix before drawing strong conclusions from 15. At top-20 the anchors land near the
+in-batch numbers; at recall@1000 the L_IC anchor exceeds in-batch λ=0 by +0.014,
+so "sampling loses nothing" is NOT established — a properly matched full-softmax
+comparison is planned. LogQ itself shows a small positive test effect on both
+branches at top-20 (+0.0013–0.0015, ≈1.5 noise units, single seed), and a tail
+gain on L_IC only (L_UC tail moves the other way) — suggestive, needs seeds.
 
 ## 4. Full model
 
@@ -108,8 +124,10 @@ section 6.
 | 06 + logQ on L_UC/L_IC | 0.0288 | 0.0257 |
 | 07 + logQ on everything | 0.0276 | 0.0246 |
 
-Best overall recipe remains the **03 family: graph + logQ on the retrieval loss
-only** (test 0.0272; the cosine variant 0.0275 with 2× faster convergence).
+Best overall recipe: the **03 family — graph + logQ on the retrieval loss only**;
+03 (0.0272), its cosine variant (0.0275), the weight-matched B×B variant (0.0285)
+and 05 (0.0266) sit within or near the tie threshold of each other — the
+single-seed ranking among them is not settled.
 
 ## 5. Reproducibility
 
