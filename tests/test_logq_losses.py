@@ -291,6 +291,13 @@ def test_matched_full_softmax_matches_manual():
     got.backward()
     assert torch.isfinite(fa.grad).all()
 
+    bad_ids = torch.tensor([1, 3, 4, 2])  # id=3 is outside train presence
+    try:
+        loss({'fa': fa.detach(), 'sa': sa, 'ft': ft, 'st': st, 'i': bad_ids})
+        raise AssertionError('anchor outside train presence must raise')
+    except ValueError:
+        pass
+
 
 def test_contrastive_full_softmax_matches_manual():
     torch.manual_seed(5)

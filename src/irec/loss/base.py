@@ -964,6 +964,12 @@ class MatchedContrastiveFullSoftmaxLoss(
         ids = inputs[self._ids_prefix].reshape(-1)      # (B,)
 
         invalid = self._invalid_columns.to(fst_table.device)
+        if bool(invalid[ids].any()):
+            raise ValueError(
+                'matched full-softmax: batch anchor ids fall outside the '
+                'train-presence mask — their positives would be masked out; '
+                'the presence file does not match the training data',
+            )
 
         scores_fst = self._direction_scores(
             fst_anchors, snd_table, fst_table, ids, invalid,
