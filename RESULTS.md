@@ -111,10 +111,27 @@ no same-view negatives), and the user table currently includes 7,878 non-train
 users whose graph embeddings are degenerate (train-only graph) — a known flaw to
 fix before drawing strong conclusions from 15. At top-20 the anchors land near the
 in-batch numbers; at recall@1000 the L_IC anchor exceeds in-batch λ=0 by +0.014,
-so "sampling loses nothing" is NOT established — a properly matched full-softmax
-comparison is planned. LogQ itself shows a small positive test effect on both
+so "sampling loses nothing" is NOT established — see the matched comparators
+below. LogQ itself shows a small positive test effect on both
 branches at top-20 (+0.0013–0.0015, ≈1.5 noise units, single seed), and a tail
 gain on L_IC only (L_UC tail moves the other way) — suggestive, needs seeds.
+
+**Matched full-catalog comparators (17/18)** fix both flaws of 15/16: the
+objective shape is identical to the in-batch loss (both-view anchors, same-view +
+other-view candidates, same normalization) and the only difference is the
+candidate pool — the full projected tables, with non-train entities excluded via
+an explicit train-presence mask. (An earlier version of that mask, `count<=1`,
+silently poisoned 43 real train singleton items; caught by external review, fixed
+with a regression test in CI, and the item run redone.) Top-20, metric-matched
+selection:
+
+| variant | val | test |
+|---|---|---|
+| 17 L_UC full matched | 0.0232 | 0.0210 |
+| 18 L_IC full matched | 0.0245 | **0.0235** |
+
+At top-20 both land at or slightly above their in-batch counterparts. The
+interesting signal is at recall@1000 — see §6.
 
 ## 4. Full model
 
@@ -167,6 +184,9 @@ choice for a candidate generator). Test recall@1000 at that checkpoint:
 | 05 full model, no logQ on contrastive | 0.3612 |
 | 06 + logQ on L_UC/L_IC | 0.3618 |
 | 09 → 10 (L_IC λ=0 → λ=1) | 0.3076 → **0.3167** |
+| **18 L_IC full-catalog matched** | **0.3252** |
+| 11 → 12 (L_UC λ=0 → λ=1) | 0.3156 → 0.3084 |
+| 17 L_UC full-catalog matched | 0.3174 |
 
 Takeaways:
 - the core story holds at @1000: the correction is the single biggest win, and
@@ -176,4 +196,12 @@ Takeaways:
   all of the tail gap; cosine retrieval variants (τ=0.1/0.5) reach the same
   0.322 level while costing top-20 precision (τ=0.5 pays 0.0159 at @20);
 - logQ on L_IC buys tail recall (+0.009) at no top-20 cost — on contrastive
-  losses the correction acts as a mild tail/head dial rather than a pure harm.
+  losses the correction acts as a mild tail/head dial rather than a pure harm;
+- the matched full-catalog comparators split by branch skewness: on the flat user
+  distribution full ≈ in-batch λ=0 (0.3174 vs 0.3156, within noise; the user logQ
+  effect flips sign between val and test → not reproducible), while on the skewed
+  item distribution full-catalog training beats in-batch λ=0 by +0.0176
+  (0.3252 vs 0.3076) with a λ0 < λ1 < full ordering consistent on val AND test —
+  sampling does lose tail on the skewed branch, and logQ recovers about half of
+  that gap (descriptive, single seed; popularity-stratified recall is the planned
+  causal check).
