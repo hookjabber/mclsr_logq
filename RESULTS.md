@@ -153,6 +153,11 @@ with `deterministic: true` still diverge from step ~130 (graph CUDA ops have no
 deterministic implementation) up to ~0.001 ndcg@20 — hence the noise floor above,
 paired arms always run on one node, and final tables will use 3 seeds.
 
+A same-seed rerun of the 09/10 pair (same GPU model, different node, two days
+later) moved test recall@1000 by +0.011 (λ=0) / +0.001 (λ=1): day-to-day
+cross-run variance at @1000 is ≈ ±0.01, i.e. larger than the concurrent-twin
+floor. Single-run recall@1000 differences below ~0.01 are treated as unresolved.
+
 ## The recipe
 
 | loss type | correction |
@@ -184,6 +189,7 @@ choice for a candidate generator). Test recall@1000 at that checkpoint:
 | 05 full model, no logQ on contrastive | 0.3612 |
 | 06 + logQ on L_UC/L_IC | 0.3618 |
 | 09 → 10 (L_IC λ=0 → λ=1) | 0.3076 → **0.3167** |
+| 09 → 10 same-seed rerun (checkpoint pair, one node) | 0.3190 → 0.3181 |
 | **18 L_IC full-catalog matched** | **0.3252** |
 | 11 → 12 (L_UC λ=0 → λ=1) | 0.3156 → 0.3084 |
 | 17 L_UC full-catalog matched | 0.3174 |
@@ -199,9 +205,33 @@ Takeaways:
   losses the correction acts as a mild tail/head dial rather than a pure harm;
 - the matched full-catalog comparators split by branch skewness: on the flat user
   distribution full ≈ in-batch λ=0 (0.3174 vs 0.3156, within noise; the user logQ
-  effect flips sign between val and test → not reproducible), while on the skewed
-  item distribution full-catalog training beats in-batch λ=0 by +0.0176
-  (0.3252 vs 0.3076) with a λ0 < λ1 < full ordering consistent on val AND test —
-  sampling does lose tail on the skewed branch, and logQ recovers about half of
-  that gap (descriptive, single seed; popularity-stratified recall is the planned
-  causal check).
+  effect flips sign between val and test → not reproducible). On the skewed item
+  distribution the full catalog is the best of all five L_IC runs (0.3252 vs
+  in-batch 0.3076–0.3190), but the same-seed rerun moved the λ=0 arm by +0.011
+  and erased the in-batch λ=1 − λ=0 gap (0.3190 → 0.3181) — so the conservative
+  full-vs-in-batch gap is +0.006…+0.018, and the in-batch logQ gain at @1000 is
+  unresolved pending seeds. On the same recall-selected checkpoints ndcg@20 is
+  ordered λ0 < λ1 < full (0.0222 → 0.0225 → 0.0239) — the tail gain is not paid
+  for at top-20. Consistent with (not yet proof of) the hypothesis that
+  full-catalog and logQ gains grow with the skewness of the candidate
+  distribution — refined by the stratified view below.
+
+## 6.1 Popularity-stratified recall (decile view)
+
+![decile view](assets/decile_recall.png)
+
+Catalog split into ten equal-size bins by train frequency (`scripts/decile_recall.py`;
+NDCG-best checkpoints — the 09/10 rerun pair and 18, all one node; 95%
+cluster-bootstrap CI over users; macro numbers cross-check the tensorboard curves):
+
+- the catalog is extremely sparse — half the items have ≤5 train events; the top
+  decile spans counts 18–344 and holds a third of all test target events;
+- the full-catalog edge accumulates in the MID deciles (counts ~4–18), not in
+  the extreme tail (counts 1–4: recall 0.02–0.03 for every method — too little
+  data to learn) and not in the head (saturated, all ≈0.62);
+- full ≥ in-batch λ=0 in 9/10 bins, but per-bin differences sit inside
+  overlapping CIs on a single seed — directional, to be confirmed under the
+  Toys multi-seed protocol;
+- practical reading: on this dataset sampling losses are a "middle of the
+  catalog" story (items that in-batch negatives underexpose), not a long-tail
+  story.
