@@ -247,6 +247,38 @@ def test_fps_paper_scheme_matches_manual():
     assert torch.isfinite(fst.grad).all()
 
 
+def test_fps_euclidean_matches_manual():
+    """similarity='euclidean': scores are -||a-b||^2 / tau in every scheme."""
+    from irec.loss.base import FpsLoss
+    torch.manual_seed(8)
+    fst = torch.randn(B, D, requires_grad=True)
+    snd = torch.randn(B, D)
+
+    got = FpsLoss('f', 's', tau=0.5, similarity='euclidean')({'f': fst, 's': snd})
+    combined = torch.cat((fst.detach(), snd), dim=0)
+    s = -torch.cdist(combined, combined) ** 2 / 0.5
+    rows = []
+    for i in range(2 * B):
+        pos = (i + B) % (2 * B)
+        negs = [j for j in range(2 * B) if j != i and j != pos]
+        rows.append(torch.cat((s[i, pos].reshape(1), s[i, negs])))
+    want = torch.nn.functional.cross_entropy(
+        torch.stack(rows), torch.zeros(2 * B, dtype=torch.long),
+    ) / 2
+    assert torch.allclose(got, want, atol=1e-5), (got.item(), want.item())
+    got.backward()
+    assert torch.isfinite(fst.grad).all()
+
+    got_paper = FpsLoss('f', 's', tau=0.5, scheme='paper',
+                        similarity='euclidean')({'f': fst.detach(), 's': snd})
+    cand = torch.cat((snd, fst.detach()), dim=0)
+    sp = -torch.cdist(fst.detach(), cand) ** 2 / 0.5
+    for i in range(B):
+        sp[i, B + i] = -1e12
+    want_paper = torch.nn.functional.cross_entropy(sp, torch.arange(B))
+    assert torch.allclose(got_paper, want_paper, atol=1e-5)
+
+
 def test_matched_full_softmax_matches_manual():
     """Symmetric full-catalog loss vs naive reference (incl. train-presence mask).
 

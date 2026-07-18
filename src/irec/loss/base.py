@@ -69,6 +69,7 @@ class FpsLoss(TorchLoss, config_name='fps'):
         normalize_embeddings=False,
         use_mean=True,
         scheme='symmetric',
+        similarity='dot',
         output_prefix=None,
     ):
         super().__init__()
@@ -80,9 +81,18 @@ class FpsLoss(TorchLoss, config_name='fps'):
         )
         self._normalize_embeddings = normalize_embeddings
         self._scheme = scheme
+        self._similarity = similarity
         self._output_prefix = output_prefix
         if self._scheme not in ('symmetric', 'cross_only', 'paper'):
             raise ValueError(f'Unknown fps scheme `{self._scheme}`')
+        if self._similarity not in ('dot', 'euclidean'):
+            raise ValueError(f'Unknown fps similarity `{self._similarity}`')
+        # cosine = dot over normalized embeddings; euclidean ignores the flag
+
+    def _pairwise_scores(self, queries, candidates):
+        if self._similarity == 'euclidean':
+            return -torch.cdist(queries, candidates) ** 2 / self._tau
+        return torch.mm(queries, candidates.T) / self._tau
 
     @classmethod
     def create_from_config(cls, config, **kwargs):
@@ -93,6 +103,7 @@ class FpsLoss(TorchLoss, config_name='fps'):
             normalize_embeddings=config.get('normalize_embeddings', False),
             use_mean=config.get('use_mean', True),
             scheme=config.get('scheme', 'symmetric'),
+            similarity=config.get('similarity', 'dot'),
             output_prefix=config.get('output_prefix')
         )
 
@@ -115,13 +126,13 @@ class FpsLoss(TorchLoss, config_name='fps'):
             if self._scheme == 'cross_only':
                 # B x B: anchors = fst view, candidates = snd view only
                 # (one negative per other sample)
-                scores = torch.mm(fst_embeddings, snd_embeddings.T) / self._tau
+                scores = self._pairwise_scores(fst_embeddings, snd_embeddings)
             else:
                 # paper eq. 8: anchors = fst view only; candidates = ALL
                 # snd-view rows + other fst-view rows -> B x (2B-1) after
                 # masking the anchor's own fst column
                 candidates = torch.cat((snd_embeddings, fst_embeddings), dim=0)
-                scores = torch.mm(fst_embeddings, candidates.T) / self._tau
+                scores = self._pairwise_scores(fst_embeddings, candidates)
                 n = fst_embeddings.shape[0]
                 idx = torch.arange(n, device=scores.device)
                 scores[idx, n + idx] = -1e12  # own fst copy is not a negative
@@ -146,8 +157,8 @@ class FpsLoss(TorchLoss, config_name='fps'):
                 eps=1e-6,
             )  # (2 * x, embedding_dim)
 
-        similarity_scores = (
-            torch.mm(combined_embeddings, combined_embeddings.T) / self._tau
+        similarity_scores = self._pairwise_scores(
+            combined_embeddings, combined_embeddings,
         )  # (2 * x, 2 * x)
 
         positive_samples = torch.cat(
