@@ -201,8 +201,10 @@ Takeaways:
   (0.3229 vs 0.3113, ~+3.7%, above noise) — the correction closes most but not
   all of the tail gap; cosine retrieval variants (τ=0.1/0.5) reach the same
   0.322 level while costing top-20 precision (τ=0.5 pays 0.0159 at @20);
-- logQ on L_IC buys tail recall (+0.009) at no top-20 cost — on contrastive
-  losses the correction acts as a mild tail/head dial rather than a pure harm;
+- logQ on L_IC gained +0.009 recall@1000 at no top-20 cost on the original pair,
+  but the same-seed rerun pair shows −0.001 (§5) — on contrastive losses the
+  correction is harmless and possibly a mild mid-catalog gain; unresolved
+  pending seeds;
 - the matched full-catalog comparators split by branch skewness: on the flat user
   distribution full ≈ in-batch λ=0 (0.3174 vs 0.3156, within noise; the user logQ
   effect flips sign between val and test → not reproducible). On the skewed item
