@@ -12,6 +12,7 @@ import pickle
 import sys
 import tempfile
 
+import numpy as np
 import torch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
@@ -245,6 +246,42 @@ def test_fps_paper_scheme_matches_manual():
     assert torch.allclose(got, want, atol=1e-5), (got.item(), want.item())
     got.backward()
     assert torch.isfinite(fst.grad).all()
+
+
+def test_fps_logq_denominator_and_draws_value():
+    """counts_denominator overrides the sum; num_draws_value overrides B-1.
+
+    Together they express the line-inclusion model for L_IC:
+    q(v) = line_count(v) / num_lines, p = 1 - (1 - q)^lines_per_batch.
+    """
+    from irec.loss.base import FpsLogQLoss
+    torch.manual_seed(9)
+    counts = np.array([1.0, 5.0, 10.0, 3.0, 2.0, 1.0], dtype=np.float32)
+    path = tempfile.NamedTemporaryFile(suffix='.pkl', delete=False)
+    pickle.dump(counts, path); path.close()
+    denom, draws = 20.0, 7
+
+    def make(**kw):
+        return FpsLogQLoss(
+            'f', 's', ids_prefix='i', path_to_counts=path.name,
+            tau=0.5, logq_lambda=1.0, counts_denominator=denom, **kw,
+        )
+
+    loss = make(num_draws_value=draws)
+    assert torch.allclose(
+        loss._prob_table, torch.tensor(np.clip(counts / denom, 1e-10, 1.0)),
+    )
+
+    bsz = 4
+    f, s = torch.randn(bsz, D), torch.randn(bsz, D)
+    ids = torch.tensor([1, 2, 3, 4])
+    got = loss({'f': f, 's': s, 'i': ids})
+    want = make(num_draws_prefix='n')(
+        {'f': f, 's': s, 'i': ids, 'n': torch.tensor(draws)},
+    )
+    assert torch.allclose(got, want, atol=1e-6), (got.item(), want.item())
+    other = make()({'f': f, 's': s, 'i': ids})  # default B-1 draws
+    assert not torch.allclose(got, other)
 
 
 def test_fps_euclidean_matches_manual():

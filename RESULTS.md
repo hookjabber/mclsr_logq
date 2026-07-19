@@ -11,8 +11,10 @@ come from a pre-registered protocol (fixed configs, 3 seeds, test opened once) o
 a second dataset. Single seed 42, same GPU node, full-catalog ranking over disjoint
 test users (transductive user split 8:1:1, as in the MCLSR paper), standard NDCG
 normalization (`comirec-ndcg` is logged for comparison with the paper's tables).
-Run-to-run noise: **±0.001** ndcg@20 / **±0.005** recall@1000 — differences within
-it are ties. Single-seed numbers; the headline table will be re-run with 3 seeds.
+Run-to-run noise: **±0.001** ndcg@20 from concurrent same-node twins; for
+recall@1000 a same-seed rerun on another node moved an arm by +0.011 (§5), so
+recall@1000 differences below **~±0.01** are treated as unresolved ties.
+Single-seed numbers; the headline table will be re-run with 3 seeds.
 
 *(2026-07-14: all test columns recomputed under this protocol after an external
 audit correctly noted that the previous revision reported best-over-training test
@@ -158,6 +160,16 @@ later) moved test recall@1000 by +0.011 (λ=0) / +0.001 (λ=1): day-to-day
 cross-run variance at @1000 is ≈ ±0.01, i.e. larger than the concurrent-twin
 floor. Single-run recall@1000 differences below ~0.01 are treated as unresolved.
 
+**Reproducibility note.** Three rows currently require branches: "14 exact full
+softmax" (`FullSoftmaxLoss`), "04 centered" (`center_log_q`) and "04
+positive-corrected" (`correct_positive`) live on the `testing`/`extras`
+branches; merging them into main is queued packaging work, until then those
+rows reproduce from those branches only. The SASRec BCE row's config is being
+restored. SASRec rows ran with ReLU — the config's `activation` key was inert
+until the factory fix and the configs now pin `relu` explicitly; the in-batch
+SASRec loss also has no same-user false-negative masking (unlike the MCLSR
+retrieval loss), so its λ=0 arm is conservative.
+
 ## The recipe
 
 | loss type | correction |
@@ -228,8 +240,9 @@ Catalog split into ten equal-size bins by train frequency (`scripts/decile_recal
 NDCG-best checkpoints — the 09/10 rerun pair and 18, all one node; 95%
 cluster-bootstrap CI over users; macro numbers cross-check the tensorboard curves):
 
-- the catalog is extremely sparse — half the items have ≤5 train events; the top
-  decile spans counts 18–344 and holds a third of all test target events;
+- the catalog is extremely sparse — 41% of items have ≤5 train events (median
+  6); the top decile spans counts 18–344 and holds a third of all test target
+  events;
 - the full-catalog edge accumulates in the MID deciles (counts ~4–18), not in
   the extreme tail (counts 1–4: recall 0.02–0.03 for every method — too little
   data to learn) and not in the head (saturated, all ≈0.62);
@@ -241,11 +254,14 @@ cluster-bootstrap CI over users; macro numbers cross-check the tensorboard curve
   story;
 - the counts tables were a proxy for both logQ uses (all events in full
   sequences, vs the actual target / context-inclusion distributions; TV 0.057 /
-  0.129). With role-exact tables (`scripts/generate_mclsr_role_counts.py`) the
-  residual gaps close: target-exact Q lifts in-batch+logQ to 0.3189 (full
-  softmax: 0.3229), context-exact Q lifts L_IC λ=1 to 0.3239 ≈ the full-catalog
-  comparator (0.3252) — most of both remaining gaps was the proxy, not a limit
-  of the correction (single seed).
+  0.129). With a target-exact table (`scripts/generate_mclsr_role_counts.py`)
+  in-batch+logQ rises to 0.3189 (full softmax: 0.3229) — most of that residual
+  gap was the proxy, not a limit of the correction. The context-based run
+  (0.3239 ≈ the 0.3252 full-catalog comparator) currently pairs line-inclusion
+  counts with the event-count exponent — a stronger-than-proxy but not yet
+  line-consistent correction (caught by external review); a strictly
+  line-consistent rerun (q = line-inclusions / num-lines, draws = lines per
+  batch) is queued as `10_item_only_logq_ctxq_v2`. Single seed throughout.
 
 ## 7. Sensitivity of the L_IL contrastive form (single seed)
 

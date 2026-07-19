@@ -14,7 +14,6 @@
       "name": "Clothing",
       "max_sequence_length": 20,
       "samplers": {
-        "num_negatives_val": 1280,
         "num_negatives_train": 0,
         "type": "mclsr"
       }

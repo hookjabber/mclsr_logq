@@ -121,13 +121,26 @@ python scripts/generate_item_counts.py --input data/Clothing/train_sasrec.txt \
 python scripts/generate_user_counts.py --input data/Clothing/train_mclsr.txt \
     --output data/Clothing/user_counts.pkl
 
+# 3b. Train-presence masks (matched full-catalog configs 17/18) and role-exact
+#     tables (02_logq_targetq / 10_*_ctxq*)
+python scripts/generate_train_presence.py --mode item --input data/Clothing/train_sasrec.txt \
+    --output data/Clothing/train_presence_items.pkl --num_entities 23033
+python scripts/generate_train_presence.py --mode user --input data/Clothing/train_mclsr.txt \
+    --output data/Clothing/train_presence_users.pkl --num_entities 39387
+python scripts/generate_mclsr_role_counts.py --input data/Clothing/train_mclsr.txt \
+    --num_items 23033 --max_len 20 \
+    --target_output data/Clothing/item_target_counts.pkl \
+    --context_output data/Clothing/item_context_counts.pkl
+
 # 4. Loss correctness tests (reference implementations)
 python tests/test_logq_losses.py
 
 # 5. Training (the maintained grid lives in configs/train/grid/)
 train --params configs/train/grid/03_graph.json
 
-# 6. Results summary across runs
+# 6. Results summary across runs (fresh runs land in ./tensorboard_logs;
+#    in this repository's own history the post-June runs live in
+#    new_tensorboard_logs — pass --logs new_tensorboard_logs to summarize them)
 python scripts/summarize_runs.py
 ```
 

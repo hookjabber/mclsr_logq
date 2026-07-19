@@ -242,6 +242,8 @@ class FpsLogQLoss(TorchLoss, config_name='fps_logq'):
         scheme='symmetric',
         output_prefix=None,
         num_draws_prefix=None,
+        num_draws_value=None,
+        counts_denominator=None,
     ):
         super().__init__()
         self._fst_embeddings_prefix = fst_embeddings_prefix
@@ -251,6 +253,7 @@ class FpsLogQLoss(TorchLoss, config_name='fps_logq'):
         self._logq_lambda = logq_lambda
         self._logq_probability_mode = logq_probability_mode
         self._num_draws_prefix = num_draws_prefix
+        self._num_draws_value = num_draws_value
         self._loss_function = nn.CrossEntropyLoss(
             reduction='mean' if use_mean else 'sum',
         )
@@ -276,7 +279,15 @@ class FpsLogQLoss(TorchLoss, config_name='fps_logq'):
             counts = pickle.load(f)
 
         counts_tensor = torch.tensor(counts, dtype=torch.float32)
-        probs = torch.clamp(counts_tensor / counts_tensor.sum(), min=1e-10, max=1.0)
+        # counts_denominator overrides the sum for tables whose natural unit is
+        # not an event share — e.g. line-inclusion counts, where q(v) must be
+        # count(v) / num_lines (probability a random LINE includes v), not
+        # count(v) / sum-of-all-inclusions
+        denominator = (
+            counts_tensor.sum() if counts_denominator is None
+            else float(counts_denominator)
+        )
+        probs = torch.clamp(counts_tensor / denominator, min=1e-10, max=1.0)
         self.register_buffer('_prob_table', probs)
         self.register_buffer('_log_q_table', torch.log(probs))
 
@@ -316,6 +327,8 @@ class FpsLogQLoss(TorchLoss, config_name='fps_logq'):
             scheme=config.get('scheme', 'symmetric'),
             output_prefix=config.get('output_prefix'),
             num_draws_prefix=config.get('num_draws_prefix'),
+            num_draws_value=config.get('num_draws_value'),
+            counts_denominator=config.get('counts_denominator'),
         )
 
     def _sample_log_q(self, ids, num_negative_draws, device):
@@ -407,6 +420,8 @@ class FpsLogQLoss(TorchLoss, config_name='fps_logq'):
             ids = ids.to(device=device)
             if self._num_draws_prefix is not None:
                 num_negative_draws = int(inputs[self._num_draws_prefix])
+            elif self._num_draws_value is not None:
+                num_negative_draws = int(self._num_draws_value)
             else:
                 num_negative_draws = batch_size - 1
 
@@ -458,6 +473,8 @@ class FpsLogQLoss(TorchLoss, config_name='fps_logq'):
         ids = ids.to(device=device)
         if self._num_draws_prefix is not None:
             num_negative_draws = int(inputs[self._num_draws_prefix])
+        elif self._num_draws_value is not None:
+            num_negative_draws = int(self._num_draws_value)
         else:
             num_negative_draws = batch_size - 1
 

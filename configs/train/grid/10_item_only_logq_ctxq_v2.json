@@ -1,12 +1,13 @@
 {
-  "experiment_name": "mclsr_grid_03_graph_euclid_t1",
+  "experiment_name": "mclsr_grid_10_item_only_logq_ctxq_v2",
   "use_wandb": false,
   "best_metric": "validation/ndcg@20",
   "dataset": {
     "type": "graph",
     "use_train_data_only": true,
     "use_user_graph": false,
-    "use_item_graph": false,
+    "use_item_graph": true,
+    "neighborhood_size": 50,
     "graph_dir_path": "./data/Clothing",
     "dataset": {
       "type": "mclsr",
@@ -79,13 +80,19 @@
         "weight": 1.0
       },
       {
-        "type": "fps",
-        "fst_embeddings_prefix": "sequential_representation",
-        "snd_embeddings_prefix": "graph_representation",
-        "output_prefix": "contrastive_interest_loss",
-        "weight": 1.0,
-        "temperature": 1.0,
-        "similarity": "euclidean"
+        "type": "fps_logq",
+        "fst_embeddings_prefix": "item_graph_item_embeddings",
+        "snd_embeddings_prefix": "common_graph_item_embeddings",
+        "ids_prefix": "item_ids",
+        "path_to_counts": "./data/Clothing/item_context_counts.pkl",
+        "logq_lambda": 1.0,
+        "logq_probability_mode": "inbatch_negative",
+        "mask_false_negatives": true,
+        "output_prefix": "contrastive_item_feature_loss",
+        "weight": 0.05,
+        "temperature": 0.5,
+        "num_draws_value": 128,
+        "counts_denominator": 188441
       }
     ],
     "output_prefix": "loss"
@@ -106,7 +113,7 @@
       {
         "type": "metric",
         "on_step": 1,
-        "loss_prefix": "contrastive_interest_loss"
+        "loss_prefix": "contrastive_item_feature_loss"
       },
       {
         "type": "validation",
