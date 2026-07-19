@@ -278,6 +278,14 @@ def test_fps_euclidean_matches_manual():
     want_paper = torch.nn.functional.cross_entropy(sp, torch.arange(B))
     assert torch.allclose(got_paper, want_paper, atol=1e-5)
 
+    # regression: at real batch sizes cdist's mm path is asymmetric and killed
+    # the symmetric scheme's mirrored-diagonal assert — exact mode must hold
+    big_f, big_s = torch.randn(128, D), torch.randn(128, D)
+    got_big = FpsLoss('f', 's', tau=0.5, similarity='euclidean')(
+        {'f': big_f, 's': big_s},
+    )
+    assert torch.isfinite(got_big)
+
 
 def test_matched_full_softmax_matches_manual():
     """Symmetric full-catalog loss vs naive reference (incl. train-presence mask).

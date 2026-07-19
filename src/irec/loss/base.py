@@ -91,7 +91,13 @@ class FpsLoss(TorchLoss, config_name='fps'):
 
     def _pairwise_scores(self, queries, candidates):
         if self._similarity == 'euclidean':
-            return -torch.cdist(queries, candidates) ** 2 / self._tau
+            # exact mode: the default mm-based path is numerically asymmetric
+            # on large batches (GPU), breaking the mirrored-diagonal invariant
+            distances = torch.cdist(
+                queries, candidates,
+                compute_mode='donot_use_mm_for_euclid_dist',
+            )
+            return -distances ** 2 / self._tau
         return torch.mm(queries, candidates.T) / self._tau
 
     @classmethod
