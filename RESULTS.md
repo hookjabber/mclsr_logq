@@ -190,9 +190,11 @@ choice for a candidate generator). Test recall@1000 at that checkpoint:
 | 06 + logQ on L_UC/L_IC | 0.3618 |
 | 09 → 10 (L_IC λ=0 → λ=1) | 0.3076 → **0.3167** |
 | 09 → 10 same-seed rerun (checkpoint pair, one node) | 0.3190 → 0.3181 |
+| 10 with the role-exact context-inclusion Q | **0.3239** |
 | **18 L_IC full-catalog matched** | **0.3252** |
 | 11 → 12 (L_UC λ=0 → λ=1) | 0.3156 → 0.3084 |
 | 17 L_UC full-catalog matched | 0.3174 |
+| 02 with role-exact target counts | 0.3189 |
 
 Takeaways:
 - the core story holds at @1000: the correction is the single biggest win, and
@@ -236,4 +238,37 @@ cluster-bootstrap CI over users; macro numbers cross-check the tensorboard curve
   Toys multi-seed protocol;
 - practical reading: on this dataset sampling losses are a "middle of the
   catalog" story (items that in-batch negatives underexpose), not a long-tail
-  story.
+  story;
+- the counts tables were a proxy for both logQ uses (all events in full
+  sequences, vs the actual target / context-inclusion distributions; TV 0.057 /
+  0.129). With role-exact tables (`scripts/generate_mclsr_role_counts.py`) the
+  residual gaps close: target-exact Q lifts in-batch+logQ to 0.3189 (full
+  softmax: 0.3229), context-exact Q lifts L_IC λ=1 to 0.3239 ≈ the full-catalog
+  comparator (0.3252) — most of both remaining gaps was the proxy, not a limit
+  of the correction (single seed).
+
+## 7. Sensitivity of the L_IL contrastive form (single seed)
+
+All rows share the 03 recipe (graph + logQ on retrieval only) and change ONE
+axis of the interest-level contrastive; selection by validation ndcg@20,
+recall@1000 taken at the same checkpoint:
+
+| axis | variant | val | test @20 | @1000 |
+|---|---|---|---|---|
+| — | 03 base: dot, symmetric 2B×2B, τ=0.5 | 0.0276 | 0.0272 | 0.3593 |
+| scheme | cross-only B×B (weight-matched) | **0.0286** | **0.0285** | 0.3499 |
+| scheme | paper eq. 8, B×(2B−1) | 0.0285 | 0.0260 | 0.3554 |
+| similarity | cosine, τ=0.5 | 0.0281 | 0.0275 | 0.3544 |
+| similarity | euclidean (−‖a−b‖²/τ), τ=0.5 | 0.0275 | 0.0246 | 0.3554 |
+| temperature | cosine, τ=0.2 | 0.0286 | 0.0254 | 0.3508 |
+| temperature | cosine, τ=0.1 | 0.0268 | 0.0255 | 0.3457 |
+| stack | paper-faithful (shared projector + cosine + eq. 8) | 0.0264 | 0.0250 | 0.3217 |
+| feature weights | full model, L_UC/L_IC weight 0.05 → 0.1 | 0.0273 → 0.0284 | 0.0266 → 0.0270 | 0.3549 → 0.3589 |
+
+Takeaways: the validation spread across schemes, similarities and temperatures
+is ≈0.002 with no test-consistent winner — the logQ conclusions are robust to
+the form of the contrastive. τ=0.5 (the paper's default) is best overall:
+sharper temperatures lose tail recall monotonically. Combining all
+paper-faithful choices at once underperforms each component alone (interaction,
+single seed). Raising the feature-loss weight to 0.1 is slightly positive on
+both full-model variants — a candidate default for the multi-seed protocol.
