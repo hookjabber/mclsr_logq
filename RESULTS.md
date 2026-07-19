@@ -260,15 +260,21 @@ recall@1000 taken at the same checkpoint:
 | scheme | paper eq. 8, B×(2B−1) | 0.0285 | 0.0260 | 0.3554 |
 | similarity | cosine, τ=0.5 | 0.0281 | 0.0275 | 0.3544 |
 | similarity | euclidean (−‖a−b‖²/τ), τ=0.5 | 0.0275 | 0.0246 | 0.3554 |
+| similarity | **euclidean, τ=1.0** | **0.0290** | 0.0264 | 0.3593 |
 | temperature | cosine, τ=0.2 | 0.0286 | 0.0254 | 0.3508 |
 | temperature | cosine, τ=0.1 | 0.0268 | 0.0255 | 0.3457 |
+| temperature | cosine, τ=1.0 | 0.0278 | 0.0254 | 0.3324 |
 | stack | paper-faithful (shared projector + cosine + eq. 8) | 0.0264 | 0.0250 | 0.3217 |
 | feature weights | full model, L_UC/L_IC weight 0.05 → 0.1 | 0.0273 → 0.0284 | 0.0266 → 0.0270 | 0.3549 → 0.3589 |
 
 Takeaways: the validation spread across schemes, similarities and temperatures
-is ≈0.002 with no test-consistent winner — the logQ conclusions are robust to
-the form of the contrastive. τ=0.5 (the paper's default) is best overall:
-sharper temperatures lose tail recall monotonically. Combining all
-paper-faithful choices at once underperforms each component alone (interaction,
-single seed). Raising the feature-loss weight to 0.1 is slightly positive on
-both full-model variants — a candidate default for the multi-seed protocol.
+is small with no test-consistent winner — the logQ conclusions are robust to
+the form of the contrastive. For cosine, τ=0.5 (the paper's default) is an
+interior optimum: tail recall rises toward it (0.3457 → 0.3508 → 0.3544) and
+falls past it (0.3324 at τ=1). Euclidean scoring at τ=1 posts the best
+validation ndcg@20 of the whole study (0.0290) with base-level tail — a
+first-priority candidate for the multi-seed protocol, though its single-seed
+test@20 sits below the base. Combining all paper-faithful choices at once
+underperforms each component alone (interaction, single seed). Raising the
+feature-loss weight to 0.1 is slightly positive on both full-model variants —
+another candidate default for the multi-seed protocol.
