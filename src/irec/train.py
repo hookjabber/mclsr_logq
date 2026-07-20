@@ -58,6 +58,8 @@ def train(
 
         logger.debug(f'Start epoch {epoch_num}')
         for step, batch in enumerate(dataloader):
+            if step_cnt is not None and step_num >= step_cnt:
+                break
             batch_ = copy.deepcopy(batch)
 
             model.train()
@@ -154,7 +156,10 @@ def main():
         logger.debug('Loading checkpoint from {}'.format(checkpoint_path))
         checkpoint = torch.load(checkpoint_path, map_location=DEVICE)
         logger.debug(checkpoint.keys())
-        model.load_state_dict(checkpoint)
+        # accept both bare state dicts and CheckpointCallback wrappers; NB this
+        # restores WEIGHTS only (optimizer/step/RNG resume is not implemented)
+        state_dict = checkpoint.get('model_state_dict', checkpoint.get('model', checkpoint))
+        model.load_state_dict(state_dict)
 
     loss_function = BaseLoss.create_from_config(config['loss'])
 
@@ -191,15 +196,19 @@ def main():
 
     logger.debug('Saving model...')
     ensure_checkpoints_dir()
+    # keep multi-seed runs of one config from overwriting each other
+    checkpoint_stem = config['experiment_name']
+    if 'seed' in config:
+        checkpoint_stem = '{}_seed{}'.format(checkpoint_stem, config['seed'])
     checkpoint_path = './checkpoints/{}_final_state.pth'.format(
-        config['experiment_name'],
+        checkpoint_stem,
     )
     torch.save(model.state_dict(), checkpoint_path)
     logger.debug('Saved model as {}'.format(checkpoint_path))
 
     if best_checkpoint is not None:
         best_checkpoint_path = './checkpoints/{}_best_state.pth'.format(
-            config['experiment_name'],
+            checkpoint_stem,
         )
         torch.save(best_checkpoint, best_checkpoint_path)
         logger.debug(

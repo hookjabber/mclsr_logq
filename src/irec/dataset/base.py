@@ -52,7 +52,7 @@ class BaseSequenceDataset(BaseDataset):
         self._max_sequence_length = max_sequence_length
 
     @staticmethod
-    def _create_sequences(data, max_sample_len): # TODO
+    def _create_sequences(data, max_sample_len=None): # TODO
         user_sequences = []
         item_sequences = []
 
@@ -62,9 +62,9 @@ class BaseSequenceDataset(BaseDataset):
 
         for sample in data:
             sample = sample.strip('\n').split(' ')
-            item_ids = [int(item_id) for item_id in sample[1:]][
-                -max_sample_len:
-            ]
+            item_ids = [int(item_id) for item_id in sample[1:]]
+            if max_sample_len is not None:
+                item_ids = item_ids[-max_sample_len:]
             user_id = int(sample[0])
 
             max_user_id = max(max_user_id, user_id)
@@ -683,8 +683,10 @@ class ScientificDataset(BaseSequenceDataset, config_name='scientific'):
     def _parse_and_split_data(lines, max_sequence_length):
         datasets = {'train': [], 'validation': [], 'test': []}
 
+        # split first, then truncate each part — truncating the full sequence
+        # before splitting would silently cost train two extra early items
         user_ids, item_sequences, max_user_id, max_item_id, _ = \
-            BaseSequenceDataset._create_sequences(lines, max_sequence_length)
+            BaseSequenceDataset._create_sequences(lines)
 
         for user_id, item_ids in zip(user_ids, item_sequences):
             

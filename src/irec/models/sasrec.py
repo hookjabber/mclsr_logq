@@ -86,10 +86,21 @@ class SasRecModel(SequentialTorchModel, config_name='sasrec'):
                 index=all_positive_sample_events[..., None]
             )[:, 0]  # (all_batch_items)
 
+            # uniform over REAL items only (1..num_items): the historical runs
+            # also drew padding/mask ids as negatives — that variant is what the
+            # logged BCE baseline numbers were trained with (footnoted in
+            # RESULTS); collisions with the positive/consumed items remain
+            # possible, as in many SASRec implementations without rejection
+            negative_ids = torch.randint(
+                low=1,
+                high=self._num_items + 1,
+                size=all_positive_sample_events.shape,
+                device=all_positive_sample_events.device,
+            )
             negative_scores = torch.gather(
                 input=all_scores,
                 dim=1,
-                index=torch.randint(low=0, high=all_scores.shape[1], size=all_positive_sample_events.shape, device=all_positive_sample_events.device)[..., None]
+                index=negative_ids[..., None]
             )[:, 0]  # (all_batch_items)
 
             # sample_ids, _ = create_masked_tensor(
@@ -118,6 +129,14 @@ class SasRecModel(SequentialTorchModel, config_name='sasrec'):
                 last_embeddings,
                 self._item_embeddings.weight
             )  # (batch_size, num_items + 2)
+            candidate_scores[:, 0] = -torch.inf
+            candidate_scores[:, self._num_items + 1:] = -torch.inf
+            if self._eval_top_k > self._num_items:
+                raise ValueError(
+                    'eval_top_k={} is larger than num_items={}'.format(
+                        self._eval_top_k, self._num_items,
+                    ),
+                )
 
             _, indices = torch.topk(
                 candidate_scores,
@@ -197,29 +216,15 @@ class SasRecInBatchModel(SasRecModel, config_name='sasrec_in_batch'):
                 in_batch_positive_events
             )  # (all_batch_events, embedding_dim)
 
-            # negatives
-            batch_size = all_sample_lengths.shape[0]
-            random_ids = torch.randperm(in_batch_positive_events.shape[0])
-            in_batch_negative_ids = in_batch_positive_events[random_ids][:batch_size]
-
-            in_batch_negative_embeddings = self._item_embeddings(
-                in_batch_negative_ids
-            )  # (batch_size, embedding_dim)
-
+            # in-batch training: negatives ARE the other positives in the batch,
+            # so only queries/positives/ids are emitted (an explicit random
+            # negative draw used to live here — unused by the loss, removed;
+            # NB this changes the RNG stream relative to the historical runs)
             return {
                 'query_embeddings': in_batch_queries_embeddings,
                 'positive_embeddings': in_batch_positive_embeddings,
-                'negative_embeddings': in_batch_negative_embeddings,
-
-                # --- ID PASS-THROUGH FOR DOWNSTREAM LOSS OPERATIONS ---
-                # We pass the raw item IDs to the loss function to enable:
-                # 1. False Negative Masking: Identifying and neutralizing cases where a positive 
-                #    item for one user accidentally appears as a negative sample for another 
-                #    user in the same batch (critical for In-Batch Negatives stability).
-                # 2. Per-item LogQ Correction: Mapping item IDs to their global frequencies 
-                #    to subtract log(Q) based on the specific item popularity.
+                # raw ids enable false-negative masking and per-item logQ
                 'positive_ids': in_batch_positive_events,
-                'negative_ids': in_batch_negative_ids
             }
         else:  # eval mode
             last_embeddings = self._get_last_embedding(embeddings, mask)  # (batch_size, embedding_dim)
@@ -232,6 +237,12 @@ class SasRecInBatchModel(SasRecModel, config_name='sasrec_in_batch'):
             )  # (batch_size, num_items + 2)
             candidate_scores[:, 0] = -torch.inf
             candidate_scores[:, self._num_items + 1:] = -torch.inf
+            if self._eval_top_k > self._num_items:
+                raise ValueError(
+                    'eval_top_k={} is larger than num_items={}'.format(
+                        self._eval_top_k, self._num_items,
+                    ),
+                )
 
             _, indices = torch.topk(
                 candidate_scores,

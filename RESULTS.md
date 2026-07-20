@@ -164,11 +164,16 @@ floor. Single-run recall@1000 differences below ~0.01 are treated as unresolved.
 softmax" (`FullSoftmaxLoss`), "04 centered" (`center_log_q`) and "04
 positive-corrected" (`correct_positive`) live on the `testing`/`extras`
 branches; merging them into main is queued packaging work, until then those
-rows reproduce from those branches only. The SASRec BCE row's config is being
-restored. SASRec rows ran with ReLU — the config's `activation` key was inert
-until the factory fix and the configs now pin `relu` explicitly; the in-batch
-SASRec loss also has no same-user false-negative masking (unlike the MCLSR
-retrieval loss), so its λ=0 arm is conservative.
+rows reproduce from those branches only. The SASRec BCE row's config is
+restored (`configs/train/sasrec_baseline.json`). SASRec caveats: all rows ran
+with ReLU — the config's `activation` key was inert until the factory fix and
+every sasrec config now pins `relu` explicitly; the historical BCE run drew
+negatives uniformly over the full id range including the reserved padding/mask
+ids (fixed to real-items-only going forward) and its eval did not exclude
+reserved columns (also fixed) — so the BCE row is approximately reproducible,
+not exactly; the in-batch SASRec loss has no same-user false-negative masking
+(unlike the MCLSR retrieval loss), so its λ=0 arm is conservative. All SASRec
+rows are context baselines, not tuned competitors.
 
 ## The recipe
 
@@ -246,9 +251,14 @@ cluster-bootstrap CI over users; macro numbers cross-check the tensorboard curve
 - the full-catalog edge accumulates in the MID deciles (counts ~4–18), not in
   the extreme tail (counts 1–4: recall 0.02–0.03 for every method — too little
   data to learn) and not in the head (saturated, all ≈0.62);
-- full ≥ in-batch λ=0 in 9/10 bins, but per-bin differences sit inside
-  overlapping CIs on a single seed — directional, to be confirmed under the
-  Toys multi-seed protocol;
+- full ≥ in-batch λ=0 in 9/10 bins; a paired cluster bootstrap of per-bin
+  differences (same resampled users in both arms, tie-preserving count bins —
+  items of equal train count never split across bins) puts the full-catalog
+  edge at +0.01…+0.03 across the count-5…18 bins (one bin individually
+  significant at 95%), exactly 0 in the head bin and ~0 in the count-1–4 bin —
+  directional, to be confirmed under the Toys multi-seed protocol
+  (`decile_recall.py --baseline-checkpoint --tie-preserving`; CIs are
+  user-bootstrap, conditional on one trained seed);
 - practical reading: on this dataset sampling losses are a "middle of the
   catalog" story (items that in-batch negatives underexpose), not a long-tail
   story;
@@ -259,8 +269,9 @@ cluster-bootstrap CI over users; macro numbers cross-check the tensorboard curve
   gap was the proxy, not a limit of the correction. For L_IC, two context-based
   variants were run: a hybrid (line-inclusion counts with the event-count
   exponent — a stronger-than-line-consistent correction, flagged by external
-  review) reached 0.3239, and the strictly line-consistent model
-  (q = line-inclusions / 188,441 train lines, draws = 128 lines per batch,
+  review) reached 0.3239, and the line-consistent model
+  (q = line-inclusions / 188,441 train lines, draws = 128 lines per batch — a
+  binomial approximation of the without-replacement loader, error ~3e-4 nat;
   `10_item_only_logq_ctxq_v2`) reached **0.3224** — both above the standard-Q
   arms (0.3167/0.3181) and near the full-catalog comparator (0.3252), and their
   mutual gap (0.0015) is far inside the ±0.01 rerun noise. The "better Q moves

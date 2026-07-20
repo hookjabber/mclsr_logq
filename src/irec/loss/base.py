@@ -623,56 +623,6 @@ class SamplesSoftmaxLoss(TorchLoss, config_name='sampled_softmax'):
         return loss
 
 
-class MCLSRLoss(TorchLoss, config_name='mclsr'):
-    def __init__(
-        self,
-        all_scores_prefix,
-        mask_prefix,
-        normalize_embeddings=False,
-        tau=1.0,
-        output_prefix=None,
-    ):
-        super().__init__()
-        self._all_scores_prefix = all_scores_prefix
-        self._mask_prefix = mask_prefix
-        self._normalize_embeddings = normalize_embeddings
-        self._output_prefix = output_prefix
-        self._tau = tau
-
-    def forward(self, inputs):
-        all_scores = inputs[
-            self._all_scores_prefix
-        ]  # (batch_size, batch_size, seq_len)
-        mask = inputs[self._mask_prefix]  # (batch_size)
-
-        batch_size = mask.shape[0]
-        seq_len = mask.shape[1]
-
-        positive_mask = torch.eye(batch_size, device=mask.device).bool()
-
-        positive_scores = all_scores[positive_mask]  # (batch_size, seq_len)
-        negative_scores = torch.reshape(
-            all_scores[~positive_mask],
-            shape=(batch_size, batch_size - 1, seq_len),
-        )  # (batch_size, batch_size - 1, seq_len)
-        assert torch.allclose(all_scores[0, 1], negative_scores[0, 0])
-        assert torch.allclose(all_scores[-1, -2], negative_scores[-1, -1])
-        assert torch.allclose(all_scores[0, 0], positive_scores[0])
-        assert torch.allclose(all_scores[-1, -1], positive_scores[-1])
-
-        # BPR log-likelihood must be NEGATED for a minimizing optimizer
-        # (legacy sign bug: the raw sum rewarded ranking negatives higher)
-        loss = -torch.sum(
-            torch.log(
-                torch.sigmoid(positive_scores.unsqueeze(1) - negative_scores),
-            ),
-        )  # (1)
-
-        if self._output_prefix is not None:
-            inputs[self._output_prefix] = loss.cpu().item()
-
-        return loss
-    
 class MCLSRLogqLoss(TorchLoss, config_name='mclsr_logq_special'):
     """
     LogQ-corrected Sampled Softmax Loss for MCLSR model.

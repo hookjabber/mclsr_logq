@@ -97,7 +97,8 @@ The script has 1 input argument: `params` which is the path to the json file wit
 
 Every logQ loss variant (q / q' / λ=0, both masking modes, cross-only scheme, cosine
 scoring, the full-softmax anchors) is checked against an independent naive reference
-implementation — values and gradients. Config validation catches a broken config in
+implementation — values, plus gradient sanity (finiteness and masked-entry
+zero-grad checks). Config validation catches a broken config in
 seconds instead of hours into a run. Both suites run in CI on every push:
 
 ```bash
