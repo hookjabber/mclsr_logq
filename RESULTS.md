@@ -202,7 +202,7 @@ choice for a candidate generator). Test recall@1000 at that checkpoint:
 | 06 + logQ on L_UC/L_IC | 0.3618 |
 | 09 → 10 (L_IC λ=0 → λ=1) | 0.3076 → **0.3167** |
 | 09 → 10 same-seed rerun (checkpoint pair, one node) | 0.3190 → 0.3181 |
-| 10 with the role-exact context-inclusion Q | **0.3239** |
+| 10 with a context-based Q (hybrid / line-consistent) | **0.3239** / **0.3224** |
 | **18 L_IC full-catalog matched** | **0.3252** |
 | 11 → 12 (L_UC λ=0 → λ=1) | 0.3156 → 0.3084 |
 | 17 L_UC full-catalog matched | 0.3174 |
@@ -256,12 +256,16 @@ cluster-bootstrap CI over users; macro numbers cross-check the tensorboard curve
   sequences, vs the actual target / context-inclusion distributions; TV 0.057 /
   0.129). With a target-exact table (`scripts/generate_mclsr_role_counts.py`)
   in-batch+logQ rises to 0.3189 (full softmax: 0.3229) — most of that residual
-  gap was the proxy, not a limit of the correction. The context-based run
-  (0.3239 ≈ the 0.3252 full-catalog comparator) currently pairs line-inclusion
-  counts with the event-count exponent — a stronger-than-proxy but not yet
-  line-consistent correction (caught by external review); a strictly
-  line-consistent rerun (q = line-inclusions / num-lines, draws = lines per
-  batch) is queued as `10_item_only_logq_ctxq_v2`. Single seed throughout.
+  gap was the proxy, not a limit of the correction. For L_IC, two context-based
+  variants were run: a hybrid (line-inclusion counts with the event-count
+  exponent — a stronger-than-line-consistent correction, flagged by external
+  review) reached 0.3239, and the strictly line-consistent model
+  (q = line-inclusions / 188,441 train lines, draws = 128 lines per batch,
+  `10_item_only_logq_ctxq_v2`) reached **0.3224** — both above the standard-Q
+  arms (0.3167/0.3181) and near the full-catalog comparator (0.3252), and their
+  mutual gap (0.0015) is far inside the ±0.01 rerun noise. The "better Q moves
+  in-batch toward full-catalog" conclusion holds under either formalization.
+  Single seed throughout.
 
 ## 7. Sensitivity of the L_IL contrastive form (single seed)
 
