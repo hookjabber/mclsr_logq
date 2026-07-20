@@ -47,7 +47,6 @@
     "sequence_prefix": "item",
     "user_prefix": "user",
     "labels_prefix": "labels",
-    "candidate_prefix": "candidates",
     "eval_top_k": 1000,
     "embedding_dim": 64,
     "num_graph_layers": 2,

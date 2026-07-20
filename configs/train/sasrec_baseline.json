@@ -1,24 +1,19 @@
 {
-  "experiment_name": "mclsr_Clothing",
-  "use_wandb": true,
+  "experiment_name": "sasrec_baseline_Clothing",
+  "use_wandb": false,
   "best_metric": "validation/ndcg@20",
   "dataset": {
-    "type": "graph",
-    "use_user_graph": true,
-    "use_item_graph": true,
-    "neighborhood_size": 50,
-    "graph_dir_path": "./data/Clothing",
-    "dataset": {
-      "type": "mclsr",
-      "path_to_data_dir": "./data",
-      "name": "Clothing",
-      "max_sequence_length": 20,
-      "samplers": {
-        "num_negatives_val": 1280,
-        "num_negatives_train": 1280,
-        "type": "mclsr",
-        "negative_sampler_type": "random"
-      }
+    "type": "sasrec_comparison",
+    "path_to_data_dir": "./data",
+    "name": "Clothing",
+    "max_sequence_length": 20,
+    "train_sampler": {
+      "type": "next_item_prediction",
+      "negative_sampler_type": "random",
+      "num_negatives_train": 0
+    },
+    "eval_sampler": {
+      "type": "mclsr"
     }
   },
   "dataloader": {
@@ -42,59 +37,34 @@
     }
   },
   "model": {
-    "type": "mclsr",
+    "type": "sasrec",
     "sequence_prefix": "item",
-    "user_prefix": "user",
-    "labels_prefix": "labels",
+    "positive_prefix": "positive",
     "embedding_dim": 64,
-    "num_graph_layers": 2,
+    "num_heads": 2,
+    "num_layers": 2,
+    "dim_feedforward": 256,
     "dropout": 0.3,
+    "activation": "gelu",
     "layer_norm_eps": 1e-09,
-    "graph_dropout": 0.3,
-    "initializer_range": 0.02,
-    "alpha": 0.5
+    "initializer_range": 0.02
   },
   "optimizer": {
     "type": "basic",
     "optimizer": {
       "type": "adam",
       "lr": 0.001
-    }
+    },
+    "clip_grad_threshold": 1.0
   },
   "loss": {
     "type": "composite",
     "losses": [
       {
-        "type": "sampled_softmax",
-        "queries_prefix": "combined_representation",
-        "positive_prefix": "label_representation",
-        "negative_prefix": "negative_representation",
-        "output_prefix": "downstream_loss",
-        "weight": 1.0
-      },
-      {
-        "type": "fps",
-        "fst_embeddings_prefix": "sequential_representation",
-        "snd_embeddings_prefix": "graph_representation",
-        "output_prefix": "contrastive_interest_loss",
-        "weight": 1.0,
-        "temperature": 0.5
-      },
-      {
-        "type": "fps",
-        "fst_embeddings_prefix": "user_graph_user_embeddings",
-        "snd_embeddings_prefix": "common_graph_user_embeddings",
-        "output_prefix": "contrastive_user_feature_loss",
-        "weight": 0.05,
-        "temperature": 0.5
-      },
-      {
-        "type": "fps",
-        "fst_embeddings_prefix": "item_graph_item_embeddings",
-        "snd_embeddings_prefix": "common_graph_item_embeddings",
-        "output_prefix": "contrastive_item_feature_loss",
-        "weight": 0.05,
-        "temperature": 0.5
+        "type": "sasrec",
+        "positive_prefix": "positive_scores",
+        "negative_prefix": "negative_scores",
+        "output_prefix": "downstream_loss"
       }
     ],
     "output_prefix": "loss"
@@ -106,26 +76,6 @@
         "type": "metric",
         "on_step": 1,
         "loss_prefix": "loss"
-      },
-      {
-        "type": "metric",
-        "on_step": 1,
-        "loss_prefix": "downstream_loss"
-      },
-      {
-        "type": "metric",
-        "on_step": 1,
-        "loss_prefix": "contrastive_interest_loss"
-      },
-      {
-        "type": "metric",
-        "on_step": 1,
-        "loss_prefix": "contrastive_user_feature_loss"
-      },
-      {
-        "type": "metric",
-        "on_step": 1,
-        "loss_prefix": "contrastive_item_feature_loss"
       },
       {
         "type": "validation",

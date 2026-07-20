@@ -40,7 +40,6 @@
     "type": "sasrec_in_batch",
     "sequence_prefix": "item",
     "positive_prefix": "positive",
-    "candidate_prefix": "candidates",
     "embedding_dim": 64,
     "num_heads": 2,
     "num_layers": 2,

@@ -19,7 +19,8 @@ class SasRecModel(SequentialTorchModel, config_name='sasrec'):
             dropout=0.0,
             activation='relu',
             layer_norm_eps=1e-9,
-            initializer_range=0.02
+            initializer_range=0.02,
+            eval_top_k=50,
     ):
         super().__init__(
             num_items=num_items,
@@ -35,6 +36,7 @@ class SasRecModel(SequentialTorchModel, config_name='sasrec'):
         )
         self._sequence_prefix = sequence_prefix
         self._positive_prefix = positive_prefix
+        self._eval_top_k = eval_top_k
 
         self._init_weights(initializer_range)
 
@@ -53,6 +55,7 @@ class SasRecModel(SequentialTorchModel, config_name='sasrec'):
             initializer_range=config.get('initializer_range', 0.02),
             activation=config.get('activation', 'relu'),
             layer_norm_eps=config.get('layer_norm_eps', 1e-9),
+            eval_top_k=config.get('eval_top_k', 50),
         )
 
     def forward(self, inputs):
@@ -118,8 +121,8 @@ class SasRecModel(SequentialTorchModel, config_name='sasrec'):
 
             _, indices = torch.topk(
                 candidate_scores,
-                k=50, dim=-1, largest=True
-            )  # (batch_size, 20)
+                k=self._eval_top_k, dim=-1, largest=True
+            )  # (batch_size, eval_top_k)
 
             return indices
 
@@ -139,7 +142,8 @@ class SasRecInBatchModel(SasRecModel, config_name='sasrec_in_batch'):
             dropout=0.0,
             activation='relu',
             layer_norm_eps=1e-9,
-            initializer_range=0.02
+            initializer_range=0.02,
+            eval_top_k=50,
     ):
         super().__init__(
             sequence_prefix=sequence_prefix,
@@ -153,7 +157,8 @@ class SasRecInBatchModel(SasRecModel, config_name='sasrec_in_batch'):
             dropout=dropout,
             activation=activation,
             layer_norm_eps=layer_norm_eps,
-            initializer_range=initializer_range
+            initializer_range=initializer_range,
+            eval_top_k=eval_top_k,
         )
 
     @classmethod
@@ -171,6 +176,7 @@ class SasRecInBatchModel(SasRecModel, config_name='sasrec_in_batch'):
             initializer_range=config.get('initializer_range', 0.02),
             activation=config.get('activation', 'relu'),
             layer_norm_eps=config.get('layer_norm_eps', 1e-9),
+            eval_top_k=config.get('eval_top_k', 50),
         )
 
     def forward(self, inputs):
@@ -229,7 +235,7 @@ class SasRecInBatchModel(SasRecModel, config_name='sasrec_in_batch'):
 
             _, indices = torch.topk(
                 candidate_scores,
-                k=50, dim=-1, largest=True
-            )  # (batch_size, 20)
+                k=self._eval_top_k, dim=-1, largest=True
+            )  # (batch_size, eval_top_k)
 
             return indices

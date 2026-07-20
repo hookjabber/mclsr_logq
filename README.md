@@ -63,13 +63,11 @@ config away. **All experiment results with verdicts: [RESULTS.md](./RESULTS.md).
    ```
 
 ## Preparing datasets
-All pre-processed datasets used in our experiments are available for download from our cloud storage. This is the fastest way to get started.
-
-- **link**
-
-After downloading, extract the archives into the [data](./data) directory.
-
-Alternatively, you can process the raw data from scratch using the Jupyter notebooks provided in the [notebooks](./notebooks) directory. The notebooks will generate the required .txt data splits.
+The data splits are generated from the public Amazon review dumps by the Jupyter
+notebooks in [notebooks](./notebooks) — run the dataset notebook (e.g.
+`AmazonClothingDatasetUserSplit.ipynb`) to produce the `.txt` splits under
+[data](./data), then generate the count tables and masks as shown in the
+reproduce section below.
 
 ## Model training
 To train a model, simply run the following from the root directory:

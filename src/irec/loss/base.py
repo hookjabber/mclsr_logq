@@ -660,8 +660,9 @@ class MCLSRLoss(TorchLoss, config_name='mclsr'):
         assert torch.allclose(all_scores[0, 0], positive_scores[0])
         assert torch.allclose(all_scores[-1, -1], positive_scores[-1])
 
-        # Maybe try mean over sequence TODO
-        loss = torch.sum(
+        # BPR log-likelihood must be NEGATED for a minimizing optimizer
+        # (legacy sign bug: the raw sum rewarded ranking negatives higher)
+        loss = -torch.sum(
             torch.log(
                 torch.sigmoid(positive_scores.unsqueeze(1) - negative_scores),
             ),

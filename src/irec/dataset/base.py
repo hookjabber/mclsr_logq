@@ -684,7 +684,7 @@ class ScientificDataset(BaseSequenceDataset, config_name='scientific'):
         datasets = {'train': [], 'validation': [], 'test': []}
 
         user_ids, item_sequences, max_user_id, max_item_id, _ = \
-            BaseSequenceDataset._create_sequences(lines)
+            BaseSequenceDataset._create_sequences(lines, max_sequence_length)
 
         for user_id, item_ids in zip(user_ids, item_sequences):
             
@@ -748,6 +748,12 @@ class MCLSRDataset(BaseSequenceDataset, config_name='mclsr'):
     
     @classmethod
     def _create_evaluation_sets(cls, data_dir, max_seq_len):
+        # NB: train ladder lines are cut to max_seq_len and then lose their last
+        # item to the target, so train INPUTS are <= max_seq_len - 1 items while
+        # eval histories here get max_seq_len — the last position embedding is
+        # never trained. Measured empirically zero on Clothing (0.4% of users
+        # reach the cap, delta ±0.0001); set `eval_history_max_len` in the
+        # dataset config to max_seq_len - 1 to align (pre-registered protocols).
         valid_hist, u2, i2 = cls._create_sequences_from_file(os.path.join(data_dir, 'valid_history.txt'), max_seq_len)
         valid_trg, u3, i3 = cls._create_sequences_from_file(os.path.join(data_dir, 'valid_target.txt'))
 
@@ -772,7 +778,8 @@ class MCLSRDataset(BaseSequenceDataset, config_name='mclsr'):
         for sample in train_dataset: user_to_all_seen_items[sample['user.ids'][0]].update(sample['item.ids'])
         kwargs['user_to_all_seen_items'] = user_to_all_seen_items
 
-        validation_dataset, test_dataset, u_eval, i_eval = cls._create_evaluation_sets(data_dir, max_seq_len)
+        eval_hist_len = config.get('eval_history_max_len', max_seq_len)
+        validation_dataset, test_dataset, u_eval, i_eval = cls._create_evaluation_sets(data_dir, eval_hist_len)
         num_users = max(u1, u_eval)
         num_items = max(i1, i_eval)
         

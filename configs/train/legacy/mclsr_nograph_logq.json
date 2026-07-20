@@ -40,10 +40,9 @@
     "sequence_prefix": "item",
     "user_prefix": "user",
     "labels_prefix": "labels",
-    "candidate_prefix": "candidates",
     "embedding_dim": 64,
     "dropout": 0.3,
-    "layer_norm_eps": 1e-9,
+    "layer_norm_eps": 1e-09,
     "initializer_range": 0.02,
     "use_graph": false
   },
@@ -89,16 +88,46 @@
         "pred_prefix": "predictions",
         "labels_prefix": "labels",
         "metrics": {
-          "ndcg@5": { "type": "mclsr-ndcg", "k": 5 },
-          "ndcg@10": { "type": "mclsr-ndcg", "k": 10 },
-          "ndcg@20": { "type": "mclsr-ndcg", "k": 20 },
-          "ndcg@50": { "type": "mclsr-ndcg", "k": 50 },
-          "recall@5": { "type": "mclsr-recall", "k": 5 },
-          "recall@10": { "type": "mclsr-recall", "k": 10 },
-          "recall@20": { "type": "mclsr-recall", "k": 20 },
-          "recall@50": { "type": "mclsr-recall", "k": 50 },
-          "hit@20": { "type": "mclsr-hit", "k": 20 },
-          "hit@50": { "type": "mclsr-hit", "k": 50 }
+          "ndcg@5": {
+            "type": "mclsr-ndcg",
+            "k": 5
+          },
+          "ndcg@10": {
+            "type": "mclsr-ndcg",
+            "k": 10
+          },
+          "ndcg@20": {
+            "type": "mclsr-ndcg",
+            "k": 20
+          },
+          "ndcg@50": {
+            "type": "mclsr-ndcg",
+            "k": 50
+          },
+          "recall@5": {
+            "type": "mclsr-recall",
+            "k": 5
+          },
+          "recall@10": {
+            "type": "mclsr-recall",
+            "k": 10
+          },
+          "recall@20": {
+            "type": "mclsr-recall",
+            "k": 20
+          },
+          "recall@50": {
+            "type": "mclsr-recall",
+            "k": 50
+          },
+          "hit@20": {
+            "type": "mclsr-hit",
+            "k": 20
+          },
+          "hit@50": {
+            "type": "mclsr-hit",
+            "k": 50
+          }
         }
       },
       {
@@ -107,16 +136,46 @@
         "pred_prefix": "predictions",
         "labels_prefix": "labels",
         "metrics": {
-          "ndcg@5": { "type": "mclsr-ndcg", "k": 5 },
-          "ndcg@10": { "type": "mclsr-ndcg", "k": 10 },
-          "ndcg@20": { "type": "mclsr-ndcg", "k": 20 },
-          "ndcg@50": { "type": "mclsr-ndcg", "k": 50 },
-          "recall@5": { "type": "mclsr-recall", "k": 5 },
-          "recall@10": { "type": "mclsr-recall", "k": 10 },
-          "recall@20": { "type": "mclsr-recall", "k": 20 },
-          "recall@50": { "type": "mclsr-recall", "k": 50 },
-          "hit@20": { "type": "mclsr-hit", "k": 20 },
-          "hit@50": { "type": "mclsr-hit", "k": 50 }
+          "ndcg@5": {
+            "type": "mclsr-ndcg",
+            "k": 5
+          },
+          "ndcg@10": {
+            "type": "mclsr-ndcg",
+            "k": 10
+          },
+          "ndcg@20": {
+            "type": "mclsr-ndcg",
+            "k": 20
+          },
+          "ndcg@50": {
+            "type": "mclsr-ndcg",
+            "k": 50
+          },
+          "recall@5": {
+            "type": "mclsr-recall",
+            "k": 5
+          },
+          "recall@10": {
+            "type": "mclsr-recall",
+            "k": 10
+          },
+          "recall@20": {
+            "type": "mclsr-recall",
+            "k": 20
+          },
+          "recall@50": {
+            "type": "mclsr-recall",
+            "k": 50
+          },
+          "hit@20": {
+            "type": "mclsr-hit",
+            "k": 20
+          },
+          "hit@50": {
+            "type": "mclsr-hit",
+            "k": 50
+          }
         }
       }
     ]

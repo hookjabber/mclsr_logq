@@ -22,7 +22,6 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
         user_prefix,
         labels_prefix,
         negatives_prefix,
-        candidate_prefix,
         num_users,
         num_items,
         max_sequence_length,
@@ -47,7 +46,6 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
         self._user_prefix = user_prefix
         self._labels_prefix = labels_prefix
         self._negatives_prefix = negatives_prefix
-        self._candidate_prefix = candidate_prefix
 
         self._num_users = num_users
         self._num_items = num_items
@@ -182,7 +180,6 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
             user_prefix=config['user_prefix'],
             labels_prefix=config['labels_prefix'],
             negatives_prefix=config.get('negatives_prefix', 'negatives'),
-            candidate_prefix=config['candidate_prefix'],
             num_users=kwargs['num_users'],
             num_items=kwargs['num_items'],
             max_sequence_length=kwargs['max_sequence_length'],
@@ -478,64 +475,30 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
 
             return outputs
         else:  # eval mode
-            # formula 16: R(u,N) = Top-N((I_s)^T * h_o)
-            if '{}.ids'.format(self._candidate_prefix) in inputs:
-                candidate_events = inputs[
-                    '{}.ids'.format(self._candidate_prefix)
-                ]  # (all_batch_candidates)
-                candidate_lengths = inputs[
-                    '{}.length'.format(self._candidate_prefix)
-
-                ]  # (batch_size)
-
-                candidate_embeddings = self._item_embeddings(
-                    candidate_events,
-                )  # (all_batch_candidates, embedding_dim)
-
-                candidate_embeddings, _ = create_masked_tensor(
-                    data=candidate_embeddings,
-                    lengths=candidate_lengths,
-                )  # (batch_size, num_candidates, embedding_dim)
-
-                candidate_scores = torch.einsum(
-                    'bd,bnd->bn',
-                    sequential_representation, # I_s
-                    candidate_embeddings, # h_o (and h_k)
-                )  # (batch_size, num_candidates)
-                if self._eval_top_k > candidate_scores.shape[-1]:
-                    raise ValueError(
-                        'eval_top_k={} is larger than the number of candidates={}'.format(
-                            self._eval_top_k,
-                            candidate_scores.shape[-1],
-                        ),
-                    )
-                top_k = self._eval_top_k
-            else:
-                candidate_embeddings = (
-                    self._item_embeddings.weight
-                )  # (num_items, embedding_dim)
-                candidate_scores = torch.einsum(
-                    'bd,nd->bn',
-                    sequential_representation, # I_s
-                    candidate_embeddings, # all h_v
-                )  # (batch_size, num_items)
-                candidate_scores[:, 0] = -torch.inf
-                candidate_scores[:, self._num_items + 1 :] = -torch.inf
-                if self._eval_top_k > self._num_items:
-                    raise ValueError(
-                        'eval_top_k={} is larger than num_items={}'.format(
-                            self._eval_top_k,
-                            self._num_items,
-                        ),
-                    )
-                top_k = self._eval_top_k
-
+            # formula 16: R(u,N) = Top-N((I_s)^T * h_v) over the full catalog
+            candidate_embeddings = (
+                self._item_embeddings.weight
+            )  # (num_items, embedding_dim)
+            candidate_scores = torch.einsum(
+                'bd,nd->bn',
+                sequential_representation, # I_s
+                candidate_embeddings, # all h_v
+            )  # (batch_size, num_items)
+            candidate_scores[:, 0] = -torch.inf
+            candidate_scores[:, self._num_items + 1 :] = -torch.inf
+            if self._eval_top_k > self._num_items:
+                raise ValueError(
+                    'eval_top_k={} is larger than num_items={}'.format(
+                        self._eval_top_k,
+                        self._num_items,
+                    ),
+                )
 
             _, indices = torch.topk(
                 candidate_scores,
-                k=top_k,
+                k=self._eval_top_k,
                 dim=-1,
                 largest=True,
-            )  # (batch_size, top_k)
+            )  # (batch_size, eval_top_k)
 
             return indices

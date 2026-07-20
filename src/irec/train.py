@@ -79,8 +79,10 @@ def train(
             elif (
                 best_checkpoint is None
                 or best_metric in batch_
-                and current_metric <= batch_[best_metric]
+                and current_metric < batch_[best_metric]
             ):
+                # strict improvement: on an exact tie keep the FIRST best, the
+                # same convention summarize_runs.py uses to pick the step
                 # If it is the first checkpoint, or it is the best checkpoint
                 current_metric = batch_[best_metric]
                 best_checkpoint = copy.deepcopy(model.state_dict())
@@ -150,7 +152,7 @@ def main():
             f'{config["checkpoint"]}.pth',
         )
         logger.debug('Loading checkpoint from {}'.format(checkpoint_path))
-        checkpoint = torch.load(checkpoint_path)
+        checkpoint = torch.load(checkpoint_path, map_location=DEVICE)
         logger.debug(checkpoint.keys())
         model.load_state_dict(checkpoint)
 
