@@ -14,6 +14,7 @@ Usage:
         --output decile_09.json
 """
 import argparse
+import hashlib
 import json
 import pickle
 
@@ -24,6 +25,54 @@ from irec.dataloader import BaseDataloader
 from irec.dataset import BaseDataset
 from irec.models import BaseModel
 from irec.utils import DEVICE, fix_random_seed
+
+
+def build_bins(counts, num_bins, tie_preserving):
+    """Popularity bins over real items (ids 1..len(counts)-2). Returns
+    (item_bins lookup array over the FULL id range, effective num_bins).
+    tie_preserving: items of equal count never split across bins (bin sizes
+    become unequal — these are popularity bins, not true deciles)."""
+    num_real = len(counts) - 2
+    real_counts = counts[1:num_real + 1]
+    item_bins = np.zeros(len(counts), dtype=np.int64)
+    if tie_preserving:
+        target = num_real / num_bins
+        bin_of_count, current_bin, filled = {}, 0, 0
+        for value, n in zip(*np.unique(real_counts, return_counts=True)):
+            if filled >= target * (current_bin + 1) and current_bin < num_bins - 1:
+                current_bin += 1
+            bin_of_count[value] = current_bin
+            filled += n
+        used = sorted(set(bin_of_count.values()))
+        remap = {b: i for i, b in enumerate(used)}
+        for idx, value in enumerate(real_counts):
+            item_bins[idx + 1] = remap[bin_of_count[value]]
+        return item_bins, len(used)
+    order = np.lexsort((np.arange(1, num_real + 1), real_counts))
+    for rank, idx in enumerate(order):
+        item_bins[idx + 1] = min(rank * num_bins // num_real, num_bins - 1)
+    return item_bins, num_bins
+
+
+def holm_adjust(p_values):
+    """Holm-Bonferroni step-down adjustment (returns adjusted p-values)."""
+    p = np.asarray(p_values, dtype=float)
+    order = np.argsort(p)
+    adjusted = np.empty_like(p)
+    running_max = 0.0
+    for rank, idx in enumerate(order):
+        value = min(1.0, (len(p) - rank) * p[idx])
+        running_max = max(running_max, value)
+        adjusted[idx] = running_max
+    return adjusted
+
+
+def file_sha256(path):
+    digest = hashlib.sha256()
+    with open(path, 'rb') as f:
+        for chunk in iter(lambda: f.read(1 << 20), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def collect_per_user(model, dataloader, k, item_bins, num_bins):
@@ -78,33 +127,17 @@ def main():
     with open(args.params) as f:
         config = json.load(f)
     with open(args.counts, 'rb') as f:
-        counts = np.asarray(pickle.load(f))
+        counts_artifact = pickle.load(f)
+    if isinstance(counts_artifact, dict):
+        counts_artifact = counts_artifact['counts']
+    counts = np.asarray(counts_artifact)
 
-    # catalog bins over real items (1..num_items), ranked by train count;
-    # bin 0 = least popular. Reserved ids (padding/mask) never appear as
-    # targets but get a bin anyway via the full-size lookup array.
+    # popularity bins over real items; reserved ids (padding/mask) never appear
+    # as targets but get a bin anyway via the full-size lookup array
     num_real = len(counts) - 2
-    real_counts = counts[1:num_real + 1]
-    item_bins = np.zeros(len(counts), dtype=np.int64)
-    if args.tie_preserving:
-        # items of equal count always share a bin: walk unique counts in
-        # ascending order, close a bin when it reaches the target quantile size
-        target = num_real / args.num_bins
-        bin_of_count, current_bin, filled = {}, 0, 0
-        for value, n in zip(*np.unique(real_counts, return_counts=True)):
-            if filled >= target * (current_bin + 1) and current_bin < args.num_bins - 1:
-                current_bin += 1
-            bin_of_count[value] = current_bin
-            filled += n
-        used = sorted(set(bin_of_count.values()))
-        remap = {b: i for i, b in enumerate(used)}
-        for idx, value in enumerate(real_counts):
-            item_bins[idx + 1] = remap[bin_of_count[value]]
-        args.num_bins = len(used)
-    else:
-        order = np.lexsort((np.arange(1, num_real + 1), real_counts))
-        for rank, idx in enumerate(order):
-            item_bins[idx + 1] = min(rank * args.num_bins // num_real, args.num_bins - 1)
+    item_bins, args.num_bins = build_bins(
+        counts, args.num_bins, args.tie_preserving,
+    )
 
     dataset = BaseDataset.create_from_config(config['dataset'])
     _, validation_sampler, test_sampler = dataset.get_samplers()
@@ -174,24 +207,43 @@ def main():
     if base_hits is not None:
         dlo, dhi = np.percentile(diff_samples, [2.5, 97.5], axis=0)
         base_recall = base_hits.sum(0) / np.maximum(totals.sum(0), 1)
+        diffs = bin_recall - base_recall
+        # two-sided bootstrap p per bin (+1 smoothing), Holm-adjusted across
+        # bins — an exploratory multiplicity guard, not a confirmatory test
+        n_boot = diff_samples.shape[0]
+        p_raw = np.minimum(1.0, 2 * np.minimum(
+            ((diff_samples <= 0).sum(0) + 1) / (n_boot + 1),
+            ((diff_samples >= 0).sum(0) + 1) / (n_boot + 1),
+        ))
+        p_holm = holm_adjust(p_raw)
         print(f'\npaired differences (main - baseline), same users both arms; '
-              f'baseline macro {base_user_recalls.mean():.4f}:')
-        print(f'{"bin":>3} {"train count":>13} {"diff":>9}  95% CI{"":>12}sig')
+              f'baseline macro {base_user_recalls.mean():.4f}; '
+              f'exploratory (Holm-adjusted across {args.num_bins} bins):')
+        print(f'{"bin":>3} {"train count":>13} {"diff":>9}  '
+              f'95% CI{"":>12}{"p":>7}{"p_holm":>8}  sig')
         for b, row in enumerate(rows):
-            d = bin_recall[b] - base_recall[b]
-            sig = '*' if dlo[b] > 0 or dhi[b] < 0 else ''
-            print(f'{b:>3} {row["count_range"]:>13} {d:>+9.4f}  '
-                  f'[{dlo[b]:+.4f}, {dhi[b]:+.4f}]  {sig}')
-            row['diff'] = float(d)
+            sig = '*' if p_holm[b] < 0.05 else ''
+            print(f'{b:>3} {row["count_range"]:>13} {diffs[b]:>+9.4f}  '
+                  f'[{dlo[b]:+.4f}, {dhi[b]:+.4f}]  {p_raw[b]:>6.3f} {p_holm[b]:>7.3f}  {sig}')
+            row['diff'] = float(diffs[b])
             row['diff_ci'] = [float(dlo[b]), float(dhi[b])]
+            row['p'] = float(p_raw[b])
+            row['p_holm'] = float(p_holm[b])
 
     if args.output:
         with open(args.output, 'w') as f:
             json.dump({
-                'checkpoint': args.checkpoint, 'split': args.split, 'k': args.k,
+                'checkpoint': args.checkpoint,
+                'checkpoint_sha256': file_sha256(args.checkpoint),
                 'baseline_checkpoint': args.baseline_checkpoint,
+                'baseline_checkpoint_sha256': (
+                    file_sha256(args.baseline_checkpoint)
+                    if args.baseline_checkpoint else None
+                ),
+                'counts_table': args.counts, 'split': args.split, 'k': args.k,
                 'tie_preserving': bool(args.tie_preserving),
-                'ci_note': 'user cluster bootstrap, conditional on one seed',
+                'ci_note': 'user cluster bootstrap, conditional on one seed; '
+                           'paired p-values Holm-adjusted, exploratory',
                 'macro_recall': float(user_recalls.mean()), 'bins': rows,
             }, f, indent=2)
 

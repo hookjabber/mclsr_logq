@@ -1,0 +1,124 @@
+{
+  "checkpoint": "checkpoints/mclsr_grid_18_item_only_full_matched_Clothing_best_state.pth",
+  "checkpoint_sha256": "b6785703e3d5d1d83e27aa2c9d24675649357e719b24a15e95dcbbac0cbc4075",
+  "baseline_checkpoint": null,
+  "baseline_checkpoint_sha256": null,
+  "counts_table": "data/Clothing/item_context_counts.pkl",
+  "split": "eval",
+  "k": 1000,
+  "tie_preserving": true,
+  "ci_note": "user cluster bootstrap, conditional on one seed; paired p-values Holm-adjusted, exploratory",
+  "macro_recall": 0.3249102610587382,
+  "bins": [
+    {
+      "bin": 0,
+      "count_range": "0-9",
+      "items": 2741,
+      "events": 791,
+      "recall": 0.06826801517067003,
+      "ci": [
+        0.04974489795918367,
+        0.08655211750186742
+      ]
+    },
+    {
+      "bin": 1,
+      "count_range": "10-12",
+      "items": 1905,
+      "events": 412,
+      "recall": 0.05825242718446602,
+      "ci": [
+        0.03589514066496163,
+        0.08375228255090945
+      ]
+    },
+    {
+      "bin": 2,
+      "count_range": "13-16",
+      "items": 2728,
+      "events": 477,
+      "recall": 0.09224318658280922,
+      "ci": [
+        0.06881552419354839,
+        0.11857337550464139
+      ]
+    },
+    {
+      "bin": 3,
+      "count_range": "17-19",
+      "items": 1944,
+      "events": 339,
+      "recall": 0.10029498525073746,
+      "ci": [
+        0.06779524330235101,
+        0.13513910969793322
+      ]
+    },
+    {
+      "bin": 4,
+      "count_range": "20-23",
+      "items": 2280,
+      "events": 433,
+      "recall": 0.14780600461893764,
+      "ci": [
+        0.114940587138863,
+        0.18181818181818182
+      ]
+    },
+    {
+      "bin": 5,
+      "count_range": "24-28",
+      "items": 2480,
+      "events": 454,
+      "recall": 0.16299559471365638,
+      "ci": [
+        0.1291742474147035,
+        0.20082928747728443
+      ]
+    },
+    {
+      "bin": 6,
+      "count_range": "29-34",
+      "items": 2049,
+      "events": 430,
+      "recall": 0.2372093023255814,
+      "ci": [
+        0.19774569762480443,
+        0.27917877832065474
+      ]
+    },
+    {
+      "bin": 7,
+      "count_range": "35-45",
+      "items": 2333,
+      "events": 605,
+      "recall": 0.27768595041322314,
+      "ci": [
+        0.24170553863264746,
+        0.31335871683274596
+      ]
+    },
+    {
+      "bin": 8,
+      "count_range": "46-68",
+      "items": 2329,
+      "events": 824,
+      "recall": 0.3907766990291262,
+      "ci": [
+        0.35596991575098585,
+        0.4271154548776032
+      ]
+    },
+    {
+      "bin": 9,
+      "count_range": "69-1282",
+      "items": 2244,
+      "events": 2146,
+      "recall": 0.6169617893755824,
+      "ci": [
+        0.5954181402121905,
+        0.6384960012411515
+      ]
+    }
+  ]
+}

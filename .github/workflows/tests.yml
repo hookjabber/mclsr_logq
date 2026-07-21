@@ -22,3 +22,5 @@ jobs:
         run: python tests/test_metrics.py
       - name: Config validation
         run: python tests/test_configs.py
+      - name: Runtime smoke tests
+        run: python tests/test_runtime.py

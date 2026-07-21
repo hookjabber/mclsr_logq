@@ -86,40 +86,44 @@ class SasRecModel(SequentialTorchModel, config_name='sasrec'):
                 index=all_positive_sample_events[..., None]
             )[:, 0]  # (all_batch_items)
 
-            # uniform over REAL items only (1..num_items): the historical runs
-            # also drew padding/mask ids as negatives — that variant is what the
-            # logged BCE baseline numbers were trained with (footnoted in
-            # RESULTS); collisions with the positive/consumed items remain
-            # possible, as in many SASRec implementations without rejection
+            # rejection sampling over REAL items (1..num_items), excluding the
+            # query's WHOLE consumed sequence and its target — the standard
+            # SASRec negative protocol. (The historical BCE runs sampled the
+            # full id range incl. padding/mask with no exclusions — footnoted
+            # in RESULTS; those numbers are approximately reproducible only.)
+            device = all_positive_sample_events.device
+            sample_ids_padded, _ = create_masked_tensor(
+                data=all_sample_events,
+                lengths=all_sample_lengths,
+            )  # (batch_size, seq_len); padded with 0 = never a real candidate
+            forbidden = torch.repeat_interleave(
+                sample_ids_padded, all_sample_lengths, dim=0,
+            )  # (all_batch_events, seq_len) — own consumed items, per query
             negative_ids = torch.randint(
-                low=1,
-                high=self._num_items + 1,
-                size=all_positive_sample_events.shape,
-                device=all_positive_sample_events.device,
+                1, self._num_items + 1,
+                size=all_positive_sample_events.shape, device=device,
             )
+            for _ in range(64):  # expected #collisions per pass ~ len/|V| << 1
+                bad = (
+                    (negative_ids[:, None] == forbidden).any(dim=1)
+                    | (negative_ids == all_positive_sample_events)
+                )
+                if not bad.any():
+                    break
+                negative_ids[bad] = torch.randint(
+                    1, self._num_items + 1,
+                    size=(int(bad.sum()),), device=device,
+                )
             negative_scores = torch.gather(
                 input=all_scores,
                 dim=1,
                 index=negative_ids[..., None]
             )[:, 0]  # (all_batch_items)
 
-            # sample_ids, _ = create_masked_tensor(
-            #     data=all_sample_events,
-            #     lengths=all_sample_lengths
-            # )  # (batch_size, seq_len)
-
-            # sample_ids = torch.repeat_interleave(sample_ids, all_sample_lengths, dim=0)  # (all_batch_events, seq_len)
-
-            # negative_scores = torch.scatter(
-            #     input=all_scores,
-            #     dim=1,
-            #     index=sample_ids,
-            #     src=torch.ones_like(sample_ids) * (-torch.inf)
-            # )  # (all_batch_events, num_items)
-
             return {
                 'positive_scores': positive_scores,
-                'negative_scores': negative_scores
+                'negative_scores': negative_scores,
+                'negative_ids': negative_ids,  # exposed for tests/inspection
             }
         else:  # eval mode
             last_embeddings = self._get_last_embedding(embeddings, mask)  # (batch_size, embedding_dim)

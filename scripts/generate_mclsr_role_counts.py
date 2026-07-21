@@ -5,6 +5,7 @@
 #     --context_output ./data/Clothing/item_context_counts.pkl
 
 import argparse
+import hashlib
 import pickle
 
 import numpy as np
@@ -45,17 +46,30 @@ def main():
                 context_counts[item_id] += 1
             lines += 1
 
-    for name, counts, path in (
-        ("target", target_counts, args.target_output),
-        ("context-inclusion", context_counts, args.context_output),
+    with open(args.input, "rb") as f:
+        source_sha256 = hashlib.sha256(f.read()).hexdigest()
+
+    # counts keep RAW ZEROS for absent ids (the numerical clamp lives in the
+    # loss); the artifact is a self-describing dict so a loss can validate the
+    # denominator/semantics instead of trusting hand-copied config numbers
+    for role, counts, denominator, path in (
+        ("target", target_counts, float(target_counts.sum()), args.target_output),
+        ("context-inclusion", context_counts, float(lines), args.context_output),
     ):
-        zeros = int((counts == 0).sum())
-        counts = counts.copy()
-        counts[counts == 0] = 1.0  # same zero-fill convention as item_counts.pkl
+        artifact = {
+            "counts": counts,
+            "denominator": denominator,
+            "role": role,
+            "max_len": args.max_len,
+            "num_lines": lines,
+            "source": args.input,
+            "source_sha256": source_sha256,
+        }
         with open(path, "wb") as f:
-            pickle.dump(counts, f)
-        print(f"{name}: {lines} lines, sum={int(counts.sum())}, "
-              f"zero-filled={zeros} -> {path}")
+            pickle.dump(artifact, f)
+        print(f"{role}: {lines} lines, sum={int(counts.sum())}, "
+              f"zeros={int((counts == 0).sum())}, denominator={denominator:.0f} "
+              f"-> {path}")
 
 
 if __name__ == "__main__":

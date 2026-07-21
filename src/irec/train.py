@@ -24,6 +24,15 @@ logger = create_logger(name=__name__)
 seed_val = 42
 
 
+def unwrap_state_dict(checkpoint):
+    """Accept bare state dicts and CheckpointCallback/eval wrappers alike."""
+    if isinstance(checkpoint, dict):
+        for key in ('model_state_dict', 'model'):
+            if key in checkpoint and isinstance(checkpoint[key], dict):
+                return checkpoint[key]
+    return checkpoint
+
+
 def train(
     dataloader,
     model,
@@ -34,14 +43,21 @@ def train(
     step_cnt=None,
     best_metric=None,
 ):
+    """`best_metric`: None (final state only), one metric name, or a LIST of
+    names — one independently tracked best checkpoint per metric. Returns a
+    dict {metric_name: state_dict} (empty when best_metric is None)."""
     step_num = 0
     epoch_num = 0
-    current_metric = 0
 
     epochs_threshold = 40
 
+    best_metrics = (
+        [best_metric] if isinstance(best_metric, str)
+        else list(best_metric or [])
+    )
+    current_values = {name: None for name in best_metrics}
+    best_checkpoints = {}
     best_epoch = 0
-    best_checkpoint = None
 
     logger.debug('Start training...')
 
@@ -74,25 +90,20 @@ def train(
             callback(batch_, step_num)
             step_num += 1
 
-            if best_metric is None:
-                # Take the last model
-                best_checkpoint = copy.deepcopy(model.state_dict())
-                best_epoch = epoch_num
-            elif (
-                best_checkpoint is None
-                or best_metric in batch_
-                and current_metric < batch_[best_metric]
-            ):
+            for name in best_metrics:
+                if name not in batch_:
+                    continue
+                value = batch_[name]
                 # strict improvement: on an exact tie keep the FIRST best, the
                 # same convention summarize_runs.py uses to pick the step
-                # If it is the first checkpoint, or it is the best checkpoint
-                current_metric = batch_[best_metric]
-                best_checkpoint = copy.deepcopy(model.state_dict())
-                best_epoch = epoch_num
+                if current_values[name] is None or current_values[name] < value:
+                    current_values[name] = value
+                    best_checkpoints[name] = copy.deepcopy(model.state_dict())
+                    best_epoch = epoch_num
 
         epoch_num += 1
     logger.debug('Training procedure has been finished!')
-    return best_checkpoint
+    return best_checkpoints
 
 
 def main():
@@ -157,9 +168,9 @@ def main():
         checkpoint = torch.load(checkpoint_path, map_location=DEVICE)
         logger.debug(checkpoint.keys())
         # accept both bare state dicts and CheckpointCallback wrappers; NB this
-        # restores WEIGHTS only (optimizer/step/RNG resume is not implemented)
-        state_dict = checkpoint.get('model_state_dict', checkpoint.get('model', checkpoint))
-        model.load_state_dict(state_dict)
+        # restores WEIGHTS only (optimizer/step/RNG resume is not implemented —
+        # this is a warm start, not a resume)
+        model.load_state_dict(unwrap_state_dict(checkpoint))
 
     loss_function = BaseLoss.create_from_config(config['loss'])
 
@@ -183,7 +194,7 @@ def main():
     logger.debug('Everything is ready for training process!')
 
     # Train process
-    best_checkpoint = train(
+    best_checkpoints = train(
         dataloader=train_dataloader,
         model=model,
         optimizer=optimizer,
@@ -196,24 +207,35 @@ def main():
 
     logger.debug('Saving model...')
     ensure_checkpoints_dir()
-    # keep multi-seed runs of one config from overwriting each other
-    checkpoint_stem = config['experiment_name']
-    if 'seed' in config:
-        checkpoint_stem = '{}_seed{}'.format(checkpoint_stem, config['seed'])
+    # the effective seed always lands in the name so that multi-seed runs of
+    # one config (and default-seed reruns) never overwrite each other
+    checkpoint_stem = '{}_seed{}'.format(
+        config['experiment_name'],
+        config.get('seed', seed_val),
+    )
     checkpoint_path = './checkpoints/{}_final_state.pth'.format(
         checkpoint_stem,
     )
     torch.save(model.state_dict(), checkpoint_path)
     logger.debug('Saved model as {}'.format(checkpoint_path))
 
-    if best_checkpoint is not None:
-        best_checkpoint_path = './checkpoints/{}_best_state.pth'.format(
-            checkpoint_stem,
+    primary_metric = config.get('best_metric')
+    if isinstance(primary_metric, list):
+        primary_metric = primary_metric[0] if primary_metric else None
+    for metric_name, state in best_checkpoints.items():
+        if metric_name == primary_metric:
+            suffix = 'best_state'  # historical name for the primary metric
+        else:
+            suffix = 'best_{}'.format(
+                metric_name.replace('/', '_').replace('@', '_at_'),
+            )
+        best_checkpoint_path = './checkpoints/{}_{}.pth'.format(
+            checkpoint_stem, suffix,
         )
-        torch.save(best_checkpoint, best_checkpoint_path)
+        torch.save(state, best_checkpoint_path)
         logger.debug(
             'Saved best checkpoint (by {}) as {}'.format(
-                config.get('best_metric'),
+                metric_name,
                 best_checkpoint_path,
             ),
         )

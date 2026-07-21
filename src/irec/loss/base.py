@@ -15,6 +15,20 @@ class BaseLoss(metaclass=MetaParent):
     pass
 
 
+def load_counts_artifact(path):
+    """Load a counts table: either a bare array (legacy) or a metadata dict
+    {'counts', 'denominator', 'role', 'max_len', 'source', 'source_sha256'}.
+    Returns (counts_array, metadata_dict); metadata is {} for bare arrays."""
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Counts file not found at {path}")
+    with open(path, 'rb') as f:
+        artifact = pickle.load(f)
+    if isinstance(artifact, dict):
+        metadata = {k: v for k, v in artifact.items() if k != 'counts'}
+        return artifact['counts'], metadata
+    return artifact, {}
+
+
 class TorchLoss(BaseLoss, nn.Module):
     pass
 
@@ -272,17 +286,29 @@ class FpsLogQLoss(TorchLoss, config_name='fps_logq'):
                 "q' is the negative distribution induced by masking the anchor id"
             )
 
-        if not os.path.exists(path_to_counts):
-            raise FileNotFoundError(f"Counts file not found at {path_to_counts}")
-
-        with open(path_to_counts, 'rb') as f:
-            counts = pickle.load(f)
+        counts, artifact_meta = load_counts_artifact(path_to_counts)
 
         counts_tensor = torch.tensor(counts, dtype=torch.float32)
         # counts_denominator overrides the sum for tables whose natural unit is
         # not an event share — e.g. line-inclusion counts, where q(v) must be
         # count(v) / num_lines (probability a random LINE includes v), not
-        # count(v) / sum-of-all-inclusions
+        # count(v) / sum-of-all-inclusions. A metadata-carrying artifact states
+        # its own denominator; an explicit config value must then AGREE with it
+        # (guards against silently pairing a stale number with new data).
+        artifact_denominator = artifact_meta.get('denominator')
+        if (
+            counts_denominator is not None
+            and artifact_denominator is not None
+            and float(counts_denominator) != float(artifact_denominator)
+        ):
+            raise ValueError(
+                'counts_denominator={} disagrees with the artifact metadata '
+                'denominator={} ({})'.format(
+                    counts_denominator, artifact_denominator, path_to_counts,
+                )
+            )
+        if counts_denominator is None:
+            counts_denominator = artifact_denominator
         denominator = (
             counts_tensor.sum() if counts_denominator is None
             else float(counts_denominator)
@@ -652,20 +678,16 @@ class MCLSRLogqLoss(TorchLoss, config_name='mclsr_logq_special'):
         self._logq_lambda = logq_lambda
 
         # Load global item frequencies to calculate sampling probabilities (p_j)
-        if not os.path.exists(path_to_item_counts):
-            raise FileNotFoundError(f"Item counts file not found at {path_to_item_counts}")
+        counts, _ = load_counts_artifact(path_to_item_counts)
 
-        with open(path_to_item_counts, 'rb') as f:
-            counts = pickle.load(f)
-        
         counts_tensor = torch.tensor(counts, dtype=torch.float32)
-        
-        # Calculate log-probabilities. 
+
+        # Calculate log-probabilities.
         # Clamp used for numerical stability to avoid log(0) resulting in NaN.
         probs = torch.clamp(counts_tensor / counts_tensor.sum(), min=1e-10)
         log_q = torch.log(probs)
-        
-        # register_buffer ensures the lookup table is moved to the correct 
+
+        # register_buffer ensures the lookup table is moved to the correct
         # device (GPU/CPU) automatically during training.
         self.register_buffer('_log_q_table', log_q)
 
@@ -765,11 +787,7 @@ class MCLSRLogqInBatchLoss(TorchLoss, config_name='mclsr_logq_inbatch'):
         self._normalize_embeddings = normalize_embeddings
         self._temperature = temperature
 
-        if not os.path.exists(path_to_item_counts):
-            raise FileNotFoundError(f"Item counts file not found at {path_to_item_counts}")
-
-        with open(path_to_item_counts, 'rb') as f:
-            counts = pickle.load(f)
+        counts, _ = load_counts_artifact(path_to_item_counts)
 
         counts_tensor = torch.tensor(counts, dtype=torch.float32)
         probs = torch.clamp(counts_tensor / counts_tensor.sum(), min=1e-10)
