@@ -44,8 +44,11 @@ def train(
     best_metric=None,
 ):
     """`best_metric`: None (final state only), one metric name, or a LIST of
-    names — one independently tracked best checkpoint per metric. Returns a
-    dict {metric_name: state_dict} (empty when best_metric is None)."""
+    names — one independently tracked best checkpoint per metric. Returns
+    {metric_name: {'state': cpu_state_dict, 'value', 'step', 'epoch'}}
+    (empty when best_metric is None). States are copied to CPU immediately so
+    several tracked bests do not accumulate on the GPU. NB the no-progress
+    patience is shared: an improvement in ANY tracked metric resets it."""
     step_num = 0
     epoch_num = 0
 
@@ -98,7 +101,19 @@ def train(
                 # same convention summarize_runs.py uses to pick the step
                 if current_values[name] is None or current_values[name] < value:
                     current_values[name] = value
-                    best_checkpoints[name] = copy.deepcopy(model.state_dict())
+                    state = {
+                        key: (
+                            tensor.detach().cpu().clone()
+                            if torch.is_tensor(tensor) else copy.deepcopy(tensor)
+                        )
+                        for key, tensor in model.state_dict().items()
+                    }
+                    best_checkpoints[name] = {
+                        'state': state,
+                        'value': float(value),
+                        'step': step_num - 1,
+                        'epoch': epoch_num,
+                    }
                     best_epoch = epoch_num
 
         epoch_num += 1
@@ -222,7 +237,7 @@ def main():
     primary_metric = config.get('best_metric')
     if isinstance(primary_metric, list):
         primary_metric = primary_metric[0] if primary_metric else None
-    for metric_name, state in best_checkpoints.items():
+    for metric_name, best in best_checkpoints.items():
         if metric_name == primary_metric:
             suffix = 'best_state'  # historical name for the primary metric
         else:
@@ -232,10 +247,12 @@ def main():
         best_checkpoint_path = './checkpoints/{}_{}.pth'.format(
             checkpoint_stem, suffix,
         )
-        torch.save(state, best_checkpoint_path)
+        torch.save(best['state'], best_checkpoint_path)
         logger.debug(
-            'Saved best checkpoint (by {}) as {}'.format(
+            'Saved best checkpoint (by {} = {:.5f} @ step {}) as {}'.format(
                 metric_name,
+                best['value'],
+                best['step'],
                 best_checkpoint_path,
             ),
         )

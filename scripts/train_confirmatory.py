@@ -2,13 +2,18 @@
 """Confirmatory (pre-registered) training runner: test is opened ONCE.
 
 Differences from the exploratory `train` entrypoint:
-- the eval (test) callback is STRIPPED from the config before training — the
-  test split is never touched while the model trains;
+- the eval (test) callback is STRIPPED from the config before training — no
+  test METRIC is ever computed while the model trains (the split file is read
+  at dataset construction, but its dataloader is only built after training);
 - a hard step limit is mandatory (config `train_steps_num` or --max-steps);
+- graphs must be train-only (use_train_data_only must not be disabled);
 - one best checkpoint is tracked per each --select validation metric;
-- after training, the test split is evaluated exactly once per saved
-  checkpoint, and everything (values, checkpoint hashes, git commit) lands in
-  a JSON report.
+- protocol: ONE test evaluation per pre-registered validation-selected
+  checkpoint (with two --select metrics the test split is scored twice — both
+  results are reported, none is discarded);
+- the mandatory JSON report records validation value/step/epoch behind every
+  selection, sha256 of the config / count-table artifacts / checkpoints, git
+  commit + dirty status and the torch version.
 
 Usage (one seed per invocation; loop seeds from the shell):
     python scripts/train_confirmatory.py --params configs/train/toys/03_graph.json \
@@ -67,11 +72,18 @@ def main():
         default=['validation/ndcg@20', 'validation/recall@1000'],
         help='validation metrics; one best checkpoint is kept per metric',
     )
-    parser.add_argument('--output', default=None, help='json report path')
+    parser.add_argument('--output', required=True, help='json report path')
     args = parser.parse_args()
 
     with open(args.params) as f:
         config = json.load(f)
+
+    dataset_config = config.get('dataset', {})
+    if dataset_config.get('use_train_data_only') is False:
+        raise SystemExit(
+            'confirmatory runs must keep use_train_data_only=true '
+            '(graphs built with val/test interactions leak the split)'
+        )
 
     step_limit = args.max_steps or config.get('train_steps_num')
     if not step_limit:
@@ -98,9 +110,6 @@ def main():
         config['dataloader']['validation'],
         dataset=validation_sampler,
         **dataset.meta,
-    )
-    eval_dataloader = BaseDataloader.create_from_config(
-        config['dataloader']['validation'], dataset=test_sampler, **dataset.meta,
     )
 
     # the test callback never runs during confirmatory training
@@ -138,22 +147,53 @@ def main():
     if not best_checkpoints:
         raise SystemExit('no best checkpoint captured — check --select names')
 
+    # the test dataloader exists only from this point on
+    eval_dataloader = BaseDataloader.create_from_config(
+        config['dataloader']['validation'], dataset=test_sampler, **dataset.meta,
+    )
+
     ensure_checkpoints_dir()
     inference_config = get_inference_config(config, 'eval')
+    artifact_hashes = {}
+    def collect_paths(node):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if isinstance(value, str) and key.startswith('path_to') and os.path.exists(value):
+                    artifact_hashes[value] = file_sha256(value)
+                else:
+                    collect_paths(value)
+        elif isinstance(node, list):
+            for item in node:
+                collect_paths(item)
+    collect_paths(config)
+
+    try:
+        dirty = bool(subprocess.check_output(
+            ['git', 'status', '--porcelain'], text=True,
+        ).strip())
+    except Exception:
+        dirty = None
+
     report = {
         'experiment': experiment,
         'params': args.params,
+        'params_sha256': file_sha256(args.params),
+        'artifact_sha256': artifact_hashes,
         'seed': args.seed,
         'step_limit': step_limit,
         'git_commit': git_commit(),
-        'protocol': 'test evaluated once per selection metric after training',
+        'git_dirty': dirty,
+        'torch_version': torch.__version__,
+        'protocol': 'one test evaluation per pre-registered '
+                    'validation-selected checkpoint; shared no-progress '
+                    'patience across selection metrics',
         'results': {},
     }
-    for metric_name, state in best_checkpoints.items():
+    for metric_name, best in best_checkpoints.items():
         slug = metric_name.replace('/', '_').replace('@', '_at_')
         path = './checkpoints/{}_best_{}.pth'.format(experiment, slug)
-        torch.save(state, path)
-        model.load_state_dict(state)
+        torch.save(best['state'], path)
+        model.load_state_dict(best['state'])
         test_metrics = evaluate(
             model=model,
             dataloader=eval_dataloader,
@@ -163,6 +203,10 @@ def main():
             meta=dataset.meta,
         )
         report['results'][metric_name] = {
+            'selection_metric': metric_name,
+            'validation_value': best['value'],
+            'step': best['step'],
+            'epoch': best['epoch'],
             'checkpoint': path,
             'checkpoint_sha256': file_sha256(path),
             'test': test_metrics,

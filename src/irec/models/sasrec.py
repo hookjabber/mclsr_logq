@@ -96,23 +96,38 @@ class SasRecModel(SequentialTorchModel, config_name='sasrec'):
                 data=all_sample_events,
                 lengths=all_sample_lengths,
             )  # (batch_size, seq_len); padded with 0 = never a real candidate
+            # forbidden set per user = FULL sequence: inputs UNION positives
+            # (the final target appears only among positives, so inputs alone
+            # would still let early queries draw it as a negative)
+            last_positive = all_positive_sample_events[
+                torch.cumsum(all_sample_lengths, dim=0) - 1
+            ]  # (batch_size,)
+            per_user_forbidden = torch.cat(
+                (sample_ids_padded, last_positive[:, None]), dim=1,
+            )
             forbidden = torch.repeat_interleave(
-                sample_ids_padded, all_sample_lengths, dim=0,
-            )  # (all_batch_events, seq_len) — own consumed items, per query
+                per_user_forbidden, all_sample_lengths, dim=0,
+            )  # (all_batch_events, seq_len + 1), identical rows per user
             negative_ids = torch.randint(
                 1, self._num_items + 1,
                 size=all_positive_sample_events.shape, device=device,
             )
+            bad = torch.ones_like(negative_ids, dtype=torch.bool)
             for _ in range(64):  # expected #collisions per pass ~ len/|V| << 1
-                bad = (
-                    (negative_ids[:, None] == forbidden).any(dim=1)
-                    | (negative_ids == all_positive_sample_events)
-                )
+                bad = (negative_ids[:, None] == forbidden).any(dim=1)
                 if not bad.any():
                     break
                 negative_ids[bad] = torch.randint(
                     1, self._num_items + 1,
                     size=(int(bad.sum()),), device=device,
+                )
+            if bad.any():
+                raise RuntimeError(
+                    'negative rejection sampling could not find eligible items '
+                    'for {} queries — the catalog is too dense relative to '
+                    'user sequences; use exact eligible-set sampling'.format(
+                        int(bad.sum()),
+                    )
                 )
             negative_scores = torch.gather(
                 input=all_scores,

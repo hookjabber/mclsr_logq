@@ -211,23 +211,34 @@ def main():
         # two-sided bootstrap p per bin (+1 smoothing), Holm-adjusted across
         # bins — an exploratory multiplicity guard, not a confirmatory test
         n_boot = diff_samples.shape[0]
-        p_raw = np.minimum(1.0, 2 * np.minimum(
+        p_boot = np.minimum(1.0, 2 * np.minimum(
             ((diff_samples <= 0).sum(0) + 1) / (n_boot + 1),
             ((diff_samples >= 0).sum(0) + 1) / (n_boot + 1),
         ))
-        p_holm = holm_adjust(p_raw)
+        # paired sign-flip permutation (primary test): per-user hit diffs,
+        # arm labels swapped per user; totals are arm-invariant
+        user_diffs = hits - base_hits  # (users, bins)
+        bin_tot = np.maximum(totals.sum(0), 1)
+        observed = user_diffs.sum(0) / bin_tot
+        n_perm = 10000
+        signs = rng.choice((-1.0, 1.0), size=(n_perm, num_users))
+        perm_stats = signs @ user_diffs / bin_tot  # (n_perm, bins)
+        p_perm = ((np.abs(perm_stats) >= np.abs(observed)).sum(0) + 1) / (n_perm + 1)
+        p_holm = holm_adjust(p_perm)
         print(f'\npaired differences (main - baseline), same users both arms; '
               f'baseline macro {base_user_recalls.mean():.4f}; '
               f'exploratory (Holm-adjusted across {args.num_bins} bins):')
         print(f'{"bin":>3} {"train count":>13} {"diff":>9}  '
-              f'95% CI{"":>12}{"p":>7}{"p_holm":>8}  sig')
+              f'95% CI{"":>12}{"p_boot":>7}{"p_perm":>8}{"p_holm":>8}  sig')
         for b, row in enumerate(rows):
             sig = '*' if p_holm[b] < 0.05 else ''
             print(f'{b:>3} {row["count_range"]:>13} {diffs[b]:>+9.4f}  '
-                  f'[{dlo[b]:+.4f}, {dhi[b]:+.4f}]  {p_raw[b]:>6.3f} {p_holm[b]:>7.3f}  {sig}')
+                  f'[{dlo[b]:+.4f}, {dhi[b]:+.4f}]  {p_boot[b]:>6.3f} '
+                  f'{p_perm[b]:>7.3f} {p_holm[b]:>7.3f}  {sig}')
             row['diff'] = float(diffs[b])
             row['diff_ci'] = [float(dlo[b]), float(dhi[b])]
-            row['p'] = float(p_raw[b])
+            row['p_boot'] = float(p_boot[b])
+            row['p_perm'] = float(p_perm[b])
             row['p_holm'] = float(p_holm[b])
 
     if args.output:
@@ -240,10 +251,13 @@ def main():
                     file_sha256(args.baseline_checkpoint)
                     if args.baseline_checkpoint else None
                 ),
-                'counts_table': args.counts, 'split': args.split, 'k': args.k,
+                'counts_table': args.counts,
+                'counts_table_sha256': file_sha256(args.counts),
+                'split': args.split, 'k': args.k,
                 'tie_preserving': bool(args.tie_preserving),
                 'ci_note': 'user cluster bootstrap, conditional on one seed; '
-                           'paired p-values Holm-adjusted, exploratory',
+                           'paired sign-flip permutation p, Holm-adjusted, '
+                           'exploratory',
                 'macro_recall': float(user_recalls.mean()), 'bins': rows,
             }, f, indent=2)
 

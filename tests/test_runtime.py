@@ -91,6 +91,9 @@ def test_multi_metric_best_tracking():
     )
     assert best['validation/a']['step'] == 1, best  # strict: tie keeps FIRST
     assert best['validation/b']['step'] == 3, best
+    assert best['validation/a']['value'] == 0.5
+    assert best['validation/b']['value'] == 0.95
+    assert best['validation/a']['state'] == {'step': 1}
     del states, real_deepcopy_marker
 
 
@@ -127,12 +130,31 @@ def test_sasrec_negative_rejection():
         negatives = out['negative_ids']
         assert negatives.shape == positives.shape
         assert (negatives >= 1).all() and (negatives <= num_items).all()
-        forbidden_a = set(seq[:6].tolist())
-        forbidden_b = set(seq[6:].tolist())
+        # forbidden = the user's FULL sequence: inputs UNION positives — the
+        # final target (7 / 11) is excluded for EVERY query of that user
+        forbidden_a = set(seq[:6].tolist()) | {7}
+        forbidden_b = set(seq[6:].tolist()) | {11}
         for i in range(9):
             forbidden = forbidden_a if i < 6 else forbidden_b
             assert negatives[i].item() not in forbidden, (i, negatives[i])
             assert negatives[i].item() != positives[i].item()
+
+    # dense catalog: user consumed everything -> must raise, never silently
+    # accept a colliding negative
+    dense = SasRecModel(
+        sequence_prefix='item', positive_prefix='labels', num_items=2,
+        max_sequence_length=4, embedding_dim=8, num_heads=2, num_layers=1,
+        dim_feedforward=16,
+    )
+    dense.train()
+    try:
+        dense({
+            'item.ids': torch.tensor([1]), 'item.length': torch.tensor([1]),
+            'labels.ids': torch.tensor([2]),
+        })
+        raise AssertionError('dense-catalog rejection must raise')
+    except RuntimeError:
+        pass
 
 
 def test_tie_preserving_bins_and_holm():

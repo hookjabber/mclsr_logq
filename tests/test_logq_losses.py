@@ -283,6 +283,35 @@ def test_fps_logq_denominator_and_draws_value():
     other = make()({'f': f, 's': s, 'i': ids})  # default B-1 draws
     assert not torch.allclose(got, other)
 
+    # metadata-carrying artifact: role/max_len expectations are ENFORCED
+    meta_path = tempfile.NamedTemporaryFile(suffix='.pkl', delete=False)
+    pickle.dump({
+        'counts': counts, 'denominator': denom,
+        'role': 'context-inclusion', 'max_len': 20,
+    }, meta_path); meta_path.close()
+
+    ok = FpsLogQLoss(
+        'f', 's', ids_prefix='i', path_to_counts=meta_path.name, tau=0.5,
+        expected_counts_role='context-inclusion', expected_counts_max_len=20,
+    )
+    assert torch.allclose(ok._prob_table, loss._prob_table)  # denom from artifact
+    for kwargs in (
+        {'expected_counts_role': 'target'},          # wrong role
+        {'expected_counts_max_len': 50},             # wrong max_len
+    ):
+        try:
+            FpsLogQLoss('f', 's', ids_prefix='i',
+                        path_to_counts=meta_path.name, tau=0.5, **kwargs)
+            raise AssertionError(f'expected mismatch to raise: {kwargs}')
+        except ValueError:
+            pass
+    try:  # expectations against a bare legacy array must fail too
+        FpsLogQLoss('f', 's', ids_prefix='i', path_to_counts=path.name,
+                    tau=0.5, expected_counts_role='target')
+        raise AssertionError('bare array cannot satisfy a role expectation')
+    except ValueError:
+        pass
+
 
 def test_fps_euclidean_matches_manual():
     """similarity='euclidean': scores are -||a-b||^2 / tau in every scheme."""

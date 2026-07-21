@@ -91,7 +91,9 @@
         "weight": 0.05,
         "temperature": 0.5,
         "num_draws_value": 128,
-        "counts_denominator": 188441
+        "counts_denominator": 188441,
+        "expected_counts_role": "context-inclusion",
+        "expected_counts_max_len": 20
       }
     ],
     "output_prefix": "loss"

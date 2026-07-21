@@ -15,18 +15,37 @@ class BaseLoss(metaclass=MetaParent):
     pass
 
 
-def load_counts_artifact(path):
+def load_counts_artifact(path, expected_role=None, expected_max_len=None):
     """Load a counts table: either a bare array (legacy) or a metadata dict
     {'counts', 'denominator', 'role', 'max_len', 'source', 'source_sha256'}.
-    Returns (counts_array, metadata_dict); metadata is {} for bare arrays."""
+    Returns (counts_array, metadata_dict); metadata is {} for bare arrays.
+
+    When the config states expectations, they are ENFORCED: a table with the
+    wrong role/max_len (e.g. target counts wired where context-inclusion Q
+    belongs — both may share a denominator by coincidence) fails loudly, and
+    expectations against a legacy bare array fail too (it cannot prove them)."""
     if not os.path.exists(path):
         raise FileNotFoundError(f"Counts file not found at {path}")
     with open(path, 'rb') as f:
         artifact = pickle.load(f)
     if isinstance(artifact, dict):
         metadata = {k: v for k, v in artifact.items() if k != 'counts'}
-        return artifact['counts'], metadata
-    return artifact, {}
+        counts = artifact['counts']
+    else:
+        metadata, counts = {}, artifact
+    if expected_role is not None and metadata.get('role') != expected_role:
+        raise ValueError(
+            'counts artifact role mismatch at {}: expected {!r}, got {!r}'.format(
+                path, expected_role, metadata.get('role'),
+            )
+        )
+    if expected_max_len is not None and metadata.get('max_len') != expected_max_len:
+        raise ValueError(
+            'counts artifact max_len mismatch at {}: expected {}, got {}'.format(
+                path, expected_max_len, metadata.get('max_len'),
+            )
+        )
+    return counts, metadata
 
 
 class TorchLoss(BaseLoss, nn.Module):
@@ -258,6 +277,8 @@ class FpsLogQLoss(TorchLoss, config_name='fps_logq'):
         num_draws_prefix=None,
         num_draws_value=None,
         counts_denominator=None,
+        expected_counts_role=None,
+        expected_counts_max_len=None,
     ):
         super().__init__()
         self._fst_embeddings_prefix = fst_embeddings_prefix
@@ -286,7 +307,11 @@ class FpsLogQLoss(TorchLoss, config_name='fps_logq'):
                 "q' is the negative distribution induced by masking the anchor id"
             )
 
-        counts, artifact_meta = load_counts_artifact(path_to_counts)
+        counts, artifact_meta = load_counts_artifact(
+            path_to_counts,
+            expected_role=expected_counts_role,
+            expected_max_len=expected_counts_max_len,
+        )
 
         counts_tensor = torch.tensor(counts, dtype=torch.float32)
         # counts_denominator overrides the sum for tables whose natural unit is
@@ -355,6 +380,8 @@ class FpsLogQLoss(TorchLoss, config_name='fps_logq'):
             num_draws_prefix=config.get('num_draws_prefix'),
             num_draws_value=config.get('num_draws_value'),
             counts_denominator=config.get('counts_denominator'),
+            expected_counts_role=config.get('expected_counts_role'),
+            expected_counts_max_len=config.get('expected_counts_max_len'),
         )
 
     def _sample_log_q(self, ids, num_negative_draws, device):
@@ -775,6 +802,8 @@ class MCLSRLogqInBatchLoss(TorchLoss, config_name='mclsr_logq_inbatch'):
         temperature=1.0,
         output_prefix=None,
         user_ids_prefix=None,
+        expected_counts_role=None,
+        expected_counts_max_len=None,
     ):
         super().__init__()
         self._queries_prefix = queries_prefix
@@ -787,7 +816,11 @@ class MCLSRLogqInBatchLoss(TorchLoss, config_name='mclsr_logq_inbatch'):
         self._normalize_embeddings = normalize_embeddings
         self._temperature = temperature
 
-        counts, _ = load_counts_artifact(path_to_item_counts)
+        counts, _ = load_counts_artifact(
+            path_to_item_counts,
+            expected_role=expected_counts_role,
+            expected_max_len=expected_counts_max_len,
+        )
 
         counts_tensor = torch.tensor(counts, dtype=torch.float32)
         probs = torch.clamp(counts_tensor / counts_tensor.sum(), min=1e-10)
@@ -808,6 +841,8 @@ class MCLSRLogqInBatchLoss(TorchLoss, config_name='mclsr_logq_inbatch'):
             temperature=config.get('temperature', 1.0),
             output_prefix=config.get('output_prefix'),
             user_ids_prefix=config.get('user_ids_prefix'),
+            expected_counts_role=config.get('expected_counts_role'),
+            expected_counts_max_len=config.get('expected_counts_max_len'),
         )
 
     def forward(self, inputs):
