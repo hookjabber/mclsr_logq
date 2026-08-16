@@ -1,5 +1,5 @@
 
-# Steps on local machine
+# IRec × MCLSR: a systematic study of the logQ sampling-bias correction
 <p align="center">
    <a>
       <img src="./assets/irec_logo.png" alt="cool irec logo" width="40%" height="40%">
@@ -28,6 +28,8 @@ multi-loss graph-contrastive recommender (MCLSR, CIKM'22): where the correction 
 (in-batch retrieval), where it does not (contrastive alignment losses), and why. Every
 loss variant is locked in by reference tests, and every experiment is a single JSON
 config away. **All experiment results with verdicts: [RESULTS.md](./RESULTS.md).**
+
+> **Attribution.** IRec is a shared research framework developed by our team (started at the ITMO CT Machine Learning Lab); this repository is my working copy. The from-scratch MCLSR reimplementation and the logQ study here are my own contribution.
 
 ## Repository layout
 
