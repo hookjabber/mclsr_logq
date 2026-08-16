@@ -83,7 +83,16 @@ def collect_per_user(model, dataloader, k, item_bins, num_bins):
         for batch in dataloader:
             for key, value in batch.items():
                 batch[key] = value.to(DEVICE)
-            preds = model(batch)[:, :k].cpu()  # (B, k) item ids
+            model_preds = model(batch)
+            if model_preds.shape[1] < k:
+                raise SystemExit(
+                    'model returned only top-{} candidates but --k is {}: '
+                    'set model.eval_top_k >= k in the config (metrics would '
+                    'silently be recall@{} labeled as recall@{})'.format(
+                        model_preds.shape[1], k, model_preds.shape[1], k,
+                    )
+                )
+            preds = model_preds[:, :k].cpu()  # (B, k) item ids
             labels_flat = batch['labels.ids'].cpu()
             lengths = batch['labels.length'].cpu()
             offset = 0

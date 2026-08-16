@@ -120,7 +120,9 @@ class FpsLoss(TorchLoss, config_name='fps'):
             raise ValueError(f'Unknown fps scheme `{self._scheme}`')
         if self._similarity not in ('dot', 'euclidean'):
             raise ValueError(f'Unknown fps similarity `{self._similarity}`')
-        # cosine = dot over normalized embeddings; euclidean ignores the flag
+        # cosine = dot over normalized embeddings; normalization, when
+        # enabled, rescales the inputs in euclidean mode too (no maintained
+        # config combines normalize with euclidean)
 
     def _pairwise_scores(self, queries, candidates):
         if self._similarity == 'euclidean':

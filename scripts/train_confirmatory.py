@@ -92,6 +92,29 @@ def main():
             'in the config or pass --max-steps'
         )
 
+    # fail before training if a pre-registered --select metric is not even
+    # computed by the validation callback (train() would drop it silently)
+    def collect_validation_metrics(node, names):
+        if isinstance(node, dict):
+            if node.get('type') == 'validation':
+                for metric_name in node.get('metrics', {}):
+                    names.add('validation/{}'.format(metric_name))
+            for value in node.values():
+                collect_validation_metrics(value, names)
+        elif isinstance(node, list):
+            for item in node:
+                collect_validation_metrics(item, names)
+    available_metrics = set()
+    collect_validation_metrics(config.get('callback', {}), available_metrics)
+    missing = sorted(set(args.select) - available_metrics)
+    if available_metrics and missing:
+        raise SystemExit(
+            'pre-registered --select metrics are not computed by the '
+            'validation callback: {} (available: {})'.format(
+                missing, sorted(available_metrics),
+            )
+        )
+
     config['seed'] = args.seed
     fix_random_seed(args.seed, deterministic=config.get('deterministic', False))
 
@@ -146,6 +169,14 @@ def main():
     )
     if not best_checkpoints:
         raise SystemExit('no best checkpoint captured — check --select names')
+    missing_after_train = sorted(set(args.select) - set(best_checkpoints))
+    if missing_after_train:
+        raise SystemExit(
+            'pre-registered --select metrics missing from the validation '
+            'stream: {} (captured: {})'.format(
+                missing_after_train, sorted(best_checkpoints),
+            )
+        )
 
     # the test dataloader exists only from this point on
     eval_dataloader = BaseDataloader.create_from_config(
@@ -158,7 +189,7 @@ def main():
     def collect_paths(node):
         if isinstance(node, dict):
             for key, value in node.items():
-                if isinstance(value, str) and key.startswith('path_to') and os.path.exists(value):
+                if isinstance(value, str) and key.startswith('path_to') and os.path.isfile(value):
                     artifact_hashes[value] = file_sha256(value)
                 else:
                     collect_paths(value)

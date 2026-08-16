@@ -18,7 +18,6 @@ import copy
 import json
 import os
 import torch
-import wandb
 
 logger = create_logger(name=__name__)
 seed_val = 42
@@ -129,6 +128,7 @@ def main():
     )
 
     if config.get('use_wandb', False):
+        import wandb  # optional dependency: required only when use_wandb is on
         wandb.init(
             project='irec',
             name=config['experiment_name'],
@@ -258,6 +258,7 @@ def main():
         )
 
     if config.get('use_wandb', False):
+        import wandb
         wandb.finish()
 
 
