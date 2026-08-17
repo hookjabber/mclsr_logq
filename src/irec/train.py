@@ -41,6 +41,7 @@ def train(
     epoch_cnt=None,
     step_cnt=None,
     best_metric=None,
+    epochs_threshold=40,
 ):
     """`best_metric`: None (final state only), one metric name, or a LIST of
     names — one independently tracked best checkpoint per metric. Returns
@@ -50,8 +51,6 @@ def train(
     patience is shared: an improvement in ANY tracked metric resets it."""
     step_num = 0
     epoch_num = 0
-
-    epochs_threshold = 40
 
     best_metrics = (
         [best_metric] if isinstance(best_metric, str)
@@ -218,6 +217,7 @@ def main():
         epoch_cnt=config.get('train_epochs_num'),
         step_cnt=config.get('train_steps_num'),
         best_metric=config.get('best_metric'),
+        epochs_threshold=config.get('epochs_threshold', 40),
     )
 
     logger.debug('Saving model...')

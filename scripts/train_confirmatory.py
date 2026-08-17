@@ -166,6 +166,7 @@ def main():
         epoch_cnt=config.get('train_epochs_num'),
         step_cnt=step_limit,
         best_metric=args.select,
+        epochs_threshold=config.get('epochs_threshold', 40),
     )
     if not best_checkpoints:
         raise SystemExit('no best checkpoint captured — check --select names')

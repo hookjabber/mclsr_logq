@@ -274,5 +274,6 @@
       }
     ]
   },
-  "train_steps_num": 250000
+  "train_steps_num": 250000,
+  "epochs_threshold": 10
 }
