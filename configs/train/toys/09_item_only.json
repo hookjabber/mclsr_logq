@@ -269,5 +269,5 @@
       }
     ]
   },
-  "train_steps_num": 35584
+  "train_steps_num": 250000
 }
