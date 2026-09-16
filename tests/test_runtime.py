@@ -97,6 +97,26 @@ def test_multi_metric_best_tracking():
     del states, real_deepcopy_marker
 
 
+def test_on_improvement_fires_per_new_best():
+    curves = {'validation/a': [0.1, 0.5, 0.5, 0.7]}  # bests at steps 0, 1, 3
+    fired = []
+
+    def callback(batch, step):
+        batch['validation/a'] = curves['validation/a'][step]
+
+    train(
+        dataloader=_batches(4),
+        model=_TinyModel(),
+        optimizer=_CountingOptimizer(),
+        loss_function=lambda batch: torch.zeros(1),
+        callback=callback,
+        epoch_cnt=1,
+        best_metric='validation/a',
+        on_improvement=lambda name, best: fired.append((name, best['step'])),
+    )
+    assert fired == [('validation/a', 0), ('validation/a', 1), ('validation/a', 3)], fired
+
+
 def test_unwrap_state_dict():
     bare = {'w': torch.ones(1)}
     assert unwrap_state_dict(bare) is bare
@@ -155,6 +175,32 @@ def test_sasrec_negative_rejection():
         raise AssertionError('dense-catalog rejection must raise')
     except RuntimeError:
         pass
+
+
+def test_sasrec_inbatch_user_ids_and_last_query():
+    from irec.models.sasrec import SasRecInBatchModel
+    torch.manual_seed(0)
+    kwargs = dict(
+        sequence_prefix='item', positive_prefix='positive', num_items=12,
+        max_sequence_length=8, embedding_dim=8, num_heads=2, num_layers=1,
+        dim_feedforward=16,
+    )
+    batch = {
+        'item.ids': torch.tensor([1, 2, 3, 4, 5, 6, 8, 9, 10]),
+        'item.length': torch.tensor([6, 3]),
+        'positive.ids': torch.tensor([2, 3, 4, 5, 6, 7, 9, 10, 11]),
+        'user.ids': torch.tensor([21, 22]),
+        'user.length': torch.tensor([1, 1]),
+    }
+    model = SasRecInBatchModel(**kwargs); model.train()
+    out = model(batch)
+    assert out['query_embeddings'].shape == (9, 8)
+    assert out['user_ids'].tolist() == [21] * 6 + [22] * 3  # one owner per query
+    last = SasRecInBatchModel(query_positions='last', **kwargs); last.train()
+    out = last(batch)
+    assert out['query_embeddings'].shape == (2, 8)
+    assert out['positive_ids'].tolist() == [7, 11]  # final positive of each sequence
+    assert out['user_ids'].tolist() == [21, 22]
 
 
 def test_tie_preserving_bins_and_holm():

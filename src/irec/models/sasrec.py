@@ -182,6 +182,7 @@ class SasRecInBatchModel(SasRecModel, config_name='sasrec_in_batch'):
             layer_norm_eps=1e-9,
             initializer_range=0.02,
             eval_top_k=50,
+            query_positions='all',
     ):
         super().__init__(
             sequence_prefix=sequence_prefix,
@@ -198,6 +199,12 @@ class SasRecInBatchModel(SasRecModel, config_name='sasrec_in_batch'):
             initializer_range=initializer_range,
             eval_top_k=eval_top_k,
         )
+        # 'all': every position is a query (standard SASRec); 'last': one query
+        # per sequence, its final position -- the MCLSR ladder protocol when
+        # the train file is the prefix ladder
+        if query_positions not in ('all', 'last'):
+            raise ValueError(f'Unknown query_positions `{query_positions}`')
+        self._query_positions = query_positions
 
     @classmethod
     def create_from_config(cls, config, **kwargs):
@@ -215,6 +222,7 @@ class SasRecInBatchModel(SasRecModel, config_name='sasrec_in_batch'):
             activation=config.get('activation', 'relu'),
             layer_norm_eps=config.get('layer_norm_eps', 1e-9),
             eval_top_k=config.get('eval_top_k', 50),
+            query_positions=config.get('query_positions', 'all'),
         )
 
     def forward(self, inputs):
@@ -226,14 +234,26 @@ class SasRecInBatchModel(SasRecModel, config_name='sasrec_in_batch'):
         )  # (batch_size, seq_len, embedding_dim), (batch_size, seq_len)
 
         if self.training:  # training mode
-            # queries
-            in_batch_queries_embeddings = embeddings[mask]  # (all_batch_events, embedding_dim)
-
-            # positives
             in_batch_positive_events = inputs['{}.ids'.format(self._positive_prefix)]  # (all_batch_events)
+            user_ids = inputs['user.ids']  # (batch_size)
+
+            if self._query_positions == 'last':
+                # one query per sequence: its final position and final positive
+                in_batch_queries_embeddings = self._get_last_embedding(
+                    embeddings, mask,
+                )  # (batch_size, embedding_dim)
+                last_index = torch.cumsum(all_sample_lengths, dim=0) - 1
+                in_batch_positive_events = in_batch_positive_events[last_index]  # (batch_size)
+                query_user_ids = user_ids
+            else:
+                in_batch_queries_embeddings = embeddings[mask]  # (all_batch_events, embedding_dim)
+                query_user_ids = torch.repeat_interleave(
+                    user_ids, all_sample_lengths,
+                )  # (all_batch_events)
+
             in_batch_positive_embeddings = self._item_embeddings(
                 in_batch_positive_events
-            )  # (all_batch_events, embedding_dim)
+            )  # (num_queries, embedding_dim)
 
             # in-batch training: negatives ARE the other positives in the batch,
             # so only queries/positives/ids are emitted (an explicit random
@@ -244,6 +264,11 @@ class SasRecInBatchModel(SasRecModel, config_name='sasrec_in_batch'):
                 'positive_embeddings': in_batch_positive_embeddings,
                 # raw ids enable false-negative masking and per-item logQ
                 'positive_ids': in_batch_positive_events,
+                # owner of each query: lets the loss mask a user's own other
+                # positives (same-user false negatives) when configured
+                'user_ids': query_user_ids,
+                # raw item table: full-softmax anchor / mixed uniform negatives
+                'item_embedding_table': self._item_embeddings.weight,
             }
         else:  # eval mode
             last_embeddings = self._get_last_embedding(embeddings, mask)  # (batch_size, embedding_dim)

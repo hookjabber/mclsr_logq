@@ -9,9 +9,11 @@ class SASRecDataset(BaseSequenceDataset, config_name='sasrec_comparison'):
         data_dir = os.path.join(config['path_to_data_dir'], config['name'])
         max_seq_len = config.get('max_sequence_length')
 
+        # 'train_sasrec' = one full sequence per user (all positions are
+        # queries); 'train_mclsr' = the prefix ladder, one line per query
         train_dataset, u1, i1, _ = SequenceDataset._create_dataset(
             dir_path=data_dir,
-            part='train_sasrec',
+            part=config.get('train_part', 'train_sasrec'),
             max_sequence_length=max_seq_len
         )
 
