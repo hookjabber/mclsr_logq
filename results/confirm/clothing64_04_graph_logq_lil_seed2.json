@@ -1,0 +1,73 @@
+{
+  "experiment": "mclsr_grid_04_graph_logq_lil_e64_Clothing_confirm_seed2",
+  "params": "configs/train/clothing64/04_graph_logq_lil.json",
+  "params_sha256": "e754d1ad07e607600f8f0df6763bf1fa4fa5ea5ac3f9f0806d5f0ababa0fb673",
+  "artifact_sha256": {
+    "./data/Clothing/item_counts.pkl": "61e910694abb5faee0a68599c4fb895f8fb62224915d8d288c6e88e079f8eb6c",
+    "./data/Clothing/user_counts.pkl": "4198fb1c95e2bd8eafe16e5967d4f3d9c586c481be8e227b45f7e4343a551b36"
+  },
+  "seed": 2,
+  "step_limit": 250000,
+  "git_commit": "3bc5dea67176d1d7299c2f66e65de25d79590403",
+  "git_dirty": true,
+  "torch_version": "2.4.1+cu121",
+  "protocol": "one test evaluation per pre-registered validation-selected checkpoint; shared no-progress patience across selection metrics",
+  "results": {
+    "validation/ndcg@20": {
+      "selection_metric": "validation/ndcg@20",
+      "validation_value": 0.026761198222425276,
+      "step": 60096,
+      "epoch": 40,
+      "checkpoint": "./checkpoints/mclsr_grid_04_graph_logq_lil_e64_Clothing_confirm_seed2_best_validation_ndcg_at_20.pth",
+      "checkpoint_sha256": "eb85dee2559b1eade6fb83d2ffb79c894e3def081c9bd8b7a32e6ae13ab93ca4",
+      "test": {
+        "ndcg@5": 0.011593233816666047,
+        "ndcg@10": 0.01707179164561221,
+        "ndcg@20": 0.02340890928762516,
+        "ndcg@50": 0.032147639379056576,
+        "ndcg@100": 0.039508677887621566,
+        "ndcg@1000": 0.0687295489741234,
+        "recall@5": 0.017275803759315898,
+        "recall@10": 0.03206530503247897,
+        "recall@20": 0.05407944578242484,
+        "recall@50": 0.0925636534082708,
+        "recall@100": 0.13163786188221824,
+        "recall@1000": 0.3430231253583419,
+        "hit@20": 0.08604060913705584,
+        "hit@50": 0.14187817258883248,
+        "hit@100": 0.20025380710659899,
+        "hit@1000": 0.47411167512690355,
+        "comirec-ndcg@20": 0.032658447900096775,
+        "comirec-ndcg@50": 0.0436408687477487
+      }
+    },
+    "validation/recall@1000": {
+      "selection_metric": "validation/recall@1000",
+      "validation_value": 0.34526832631816107,
+      "step": 57728,
+      "epoch": 39,
+      "checkpoint": "./checkpoints/mclsr_grid_04_graph_logq_lil_e64_Clothing_confirm_seed2_best_validation_recall_at_1000.pth",
+      "checkpoint_sha256": "23256a54f3e2953b2ed8514d98f27f0f1de3dfbaacc8617c92164213d4d89090",
+      "test": {
+        "ndcg@5": 0.012907536815719557,
+        "ndcg@10": 0.01792245560566786,
+        "ndcg@20": 0.02390529446606406,
+        "ndcg@50": 0.0331259660621358,
+        "ndcg@100": 0.03981300361908329,
+        "ndcg@1000": 0.0692710623518578,
+        "recall@5": 0.018989001728859044,
+        "recall@10": 0.03243292248642384,
+        "recall@20": 0.05315869000508701,
+        "recall@50": 0.09400612379845023,
+        "recall@100": 0.12954999625607191,
+        "recall@1000": 0.3417590249613457,
+        "hit@20": 0.08477157360406092,
+        "hit@50": 0.14187817258883248,
+        "hit@100": 0.19771573604060913,
+        "hit@1000": 0.4715736040609137,
+        "comirec-ndcg@20": 0.033305482180590554,
+        "comirec-ndcg@50": 0.04453069126318554
+      }
+    }
+  }
+}

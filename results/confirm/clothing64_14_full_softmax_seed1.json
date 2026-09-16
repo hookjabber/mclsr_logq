@@ -1,0 +1,70 @@
+{
+  "experiment": "mclsr_grid_14_full_softmax_e64_Clothing_confirm_seed1",
+  "params": "configs/train/clothing64/14_full_softmax.json",
+  "params_sha256": "772c323369b1466ffeef60b6968593fabebfb0d3d81cffcb51fe27bb379b4e8a",
+  "artifact_sha256": {},
+  "seed": 1,
+  "step_limit": 250000,
+  "git_commit": "3bc5dea67176d1d7299c2f66e65de25d79590403",
+  "git_dirty": true,
+  "torch_version": "2.4.1+cu121",
+  "protocol": "one test evaluation per pre-registered validation-selected checkpoint; shared no-progress patience across selection metrics",
+  "results": {
+    "validation/ndcg@20": {
+      "selection_metric": "validation/ndcg@20",
+      "validation_value": 0.024214593109941045,
+      "step": 14592,
+      "epoch": 9,
+      "checkpoint": "./checkpoints/mclsr_grid_14_full_softmax_e64_Clothing_confirm_seed1_best_validation_ndcg_at_20.pth",
+      "checkpoint_sha256": "4f931f2422d8c068fad9c24b64d5c43dfd7aabe29a2146c8b6bd05fba61fc683",
+      "test": {
+        "ndcg@5": 0.012793687050263894,
+        "ndcg@10": 0.01722531793119036,
+        "ndcg@20": 0.02244201448892579,
+        "ndcg@50": 0.029955823212710734,
+        "ndcg@100": 0.03581905493862587,
+        "ndcg@1000": 0.06183704495675824,
+        "recall@5": 0.022231689662800223,
+        "recall@10": 0.034086898789944385,
+        "recall@20": 0.05190657492216468,
+        "recall@50": 0.08536499897538102,
+        "recall@100": 0.1162924021539198,
+        "recall@1000": 0.30589638286586945,
+        "hit@20": 0.08121827411167512,
+        "hit@50": 0.12944162436548223,
+        "hit@100": 0.17588832487309644,
+        "hit@1000": 0.42588832487309647,
+        "comirec-ndcg@20": 0.030782008715692512,
+        "comirec-ndcg@50": 0.040245691365396914
+      }
+    },
+    "validation/recall@1000": {
+      "selection_metric": "validation/recall@1000",
+      "validation_value": 0.3086286856361971,
+      "step": 11584,
+      "epoch": 7,
+      "checkpoint": "./checkpoints/mclsr_grid_14_full_softmax_e64_Clothing_confirm_seed1_best_validation_recall_at_1000.pth",
+      "checkpoint_sha256": "60e50159080307fa8922a4df1e4af5f285cbac71732884362cb9b0cc60dfceae",
+      "test": {
+        "ndcg@5": 0.012748425348004714,
+        "ndcg@10": 0.017722362054861742,
+        "ndcg@20": 0.022117687160442323,
+        "ndcg@50": 0.029251388024519844,
+        "ndcg@100": 0.03584892923570224,
+        "ndcg@1000": 0.06272167218423585,
+        "recall@5": 0.021275682898644867,
+        "recall@10": 0.03469361862933575,
+        "recall@20": 0.04982716955131081,
+        "recall@50": 0.08097836614260213,
+        "recall@100": 0.11626913649819527,
+        "recall@1000": 0.3122140647455823,
+        "hit@20": 0.07842639593908629,
+        "hit@50": 0.12385786802030457,
+        "hit@100": 0.1746192893401015,
+        "hit@1000": 0.4312182741116751,
+        "comirec-ndcg@20": 0.030677022213863238,
+        "comirec-ndcg@50": 0.03963172896410608
+      }
+    }
+  }
+}

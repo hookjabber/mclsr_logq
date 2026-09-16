@@ -1,0 +1,72 @@
+{
+  "experiment": "mclsr_grid_03_graph_e64_Clothing_confirm_seed3",
+  "params": "configs/train/clothing64/03_graph.json",
+  "params_sha256": "70a9324c4938d13acbebbf326cbee3f6a73a569710b7c99687e915f4a18ea451",
+  "artifact_sha256": {
+    "./data/Clothing/item_counts.pkl": "61e910694abb5faee0a68599c4fb895f8fb62224915d8d288c6e88e079f8eb6c"
+  },
+  "seed": 3,
+  "step_limit": 250000,
+  "git_commit": "3bc5dea67176d1d7299c2f66e65de25d79590403",
+  "git_dirty": true,
+  "torch_version": "2.4.1+cu121",
+  "protocol": "one test evaluation per pre-registered validation-selected checkpoint; shared no-progress patience across selection metrics",
+  "results": {
+    "validation/ndcg@20": {
+      "selection_metric": "validation/ndcg@20",
+      "validation_value": 0.027312064280382506,
+      "step": 23424,
+      "epoch": 15,
+      "checkpoint": "./checkpoints/mclsr_grid_03_graph_e64_Clothing_confirm_seed3_best_validation_ndcg_at_20.pth",
+      "checkpoint_sha256": "abc37441d90fe5133e42f06666c86b6acffa71ca80bba06f77c5c76f5d575543",
+      "test": {
+        "ndcg@5": 0.013856322416648041,
+        "ndcg@10": 0.020031602618279794,
+        "ndcg@20": 0.026073023809242975,
+        "ndcg@50": 0.03394234243515633,
+        "ndcg@100": 0.04105537417841139,
+        "ndcg@1000": 0.0721926043821773,
+        "recall@5": 0.020363790227979572,
+        "recall@10": 0.037075175326033896,
+        "recall@20": 0.05782028053163877,
+        "recall@50": 0.09259890440643438,
+        "recall@100": 0.13019861443355907,
+        "recall@1000": 0.35513063080155,
+        "hit@20": 0.08984771573604061,
+        "hit@50": 0.14238578680203046,
+        "hit@100": 0.19796954314720813,
+        "hit@1000": 0.4870558375634518,
+        "comirec-ndcg@20": 0.03582128400956919,
+        "comirec-ndcg@50": 0.04599535411913988
+      }
+    },
+    "validation/recall@1000": {
+      "selection_metric": "validation/recall@1000",
+      "validation_value": 0.3503657893451293,
+      "step": 28288,
+      "epoch": 19,
+      "checkpoint": "./checkpoints/mclsr_grid_03_graph_e64_Clothing_confirm_seed3_best_validation_recall_at_1000.pth",
+      "checkpoint_sha256": "8cbdd4e46305b775f409ed3d5b1b6d724fc22d1c0a329cf5e901af235be4c625",
+      "test": {
+        "ndcg@5": 0.013345166643712726,
+        "ndcg@10": 0.019235090168221346,
+        "ndcg@20": 0.025551796625108283,
+        "ndcg@50": 0.03486810781269661,
+        "ndcg@100": 0.04207228453272036,
+        "ndcg@1000": 0.07278178310503966,
+        "recall@5": 0.0206750060852409,
+        "recall@10": 0.03634759496311246,
+        "recall@20": 0.058124849060313954,
+        "recall@50": 0.09934171318894412,
+        "recall@100": 0.13774897297324262,
+        "recall@1000": 0.3608261831501868,
+        "hit@20": 0.09086294416243655,
+        "hit@50": 0.1517766497461929,
+        "hit@100": 0.2083756345177665,
+        "hit@1000": 0.49137055837563454,
+        "comirec-ndcg@20": 0.035054736784872066,
+        "comirec-ndcg@50": 0.04698539693570379
+      }
+    }
+  }
+}

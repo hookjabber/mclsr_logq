@@ -1,0 +1,72 @@
+{
+  "experiment": "toys_mclsr_grid_01_orig_Toys_confirm_seed2",
+  "params": "configs/train/toys/01_orig.json",
+  "params_sha256": "2d1d12313068ebc4e02388e7c6c1febb858da0bc9c6149ef65e37ba8ed8b68ca",
+  "artifact_sha256": {
+    "./data/Toys/item_counts.pkl": "9868c2fcf19853ab0e7cd556b07568ab6577843b12623a419ddae02885b0f11e"
+  },
+  "seed": 2,
+  "step_limit": 250000,
+  "git_commit": "3bc5dea67176d1d7299c2f66e65de25d79590403",
+  "git_dirty": true,
+  "torch_version": "2.4.1+cu121",
+  "protocol": "one test evaluation per pre-registered validation-selected checkpoint; shared no-progress patience across selection metrics",
+  "results": {
+    "validation/ndcg@20": {
+      "selection_metric": "validation/ndcg@20",
+      "validation_value": 0.03499681215993194,
+      "step": 15168,
+      "epoch": 3,
+      "checkpoint": "./checkpoints/toys_mclsr_grid_01_orig_Toys_confirm_seed2_best_validation_ndcg_at_20.pth",
+      "checkpoint_sha256": "0e74fad9251ec1e5764119d999d6adb7f270c25c9536beede5df5647b0a97b3a",
+      "test": {
+        "ndcg@5": 0.0173187297967479,
+        "ndcg@10": 0.025537943390042273,
+        "ndcg@20": 0.03411164740725344,
+        "ndcg@50": 0.0467538006171402,
+        "ndcg@100": 0.0563950862828803,
+        "ndcg@1000": 0.09390834696089542,
+        "recall@5": 0.023089325505860524,
+        "recall@10": 0.0447894727933216,
+        "recall@20": 0.0726442808489264,
+        "recall@50": 0.12266159944037815,
+        "recall@100": 0.16866521217818337,
+        "recall@1000": 0.4029223800395429,
+        "hit@20": 0.14308489438023117,
+        "hit@50": 0.23050352065896107,
+        "hit@100": 0.3023781054869138,
+        "hit@1000": 0.5966520526106018,
+        "comirec-ndcg@20": 0.0554724805392607,
+        "comirec-ndcg@50": 0.07280549546969718
+      }
+    },
+    "validation/recall@1000": {
+      "selection_metric": "validation/recall@1000",
+      "validation_value": 0.4247561125834766,
+      "step": 24192,
+      "epoch": 5,
+      "checkpoint": "./checkpoints/toys_mclsr_grid_01_orig_Toys_confirm_seed2_best_validation_recall_at_1000.pth",
+      "checkpoint_sha256": "fbdb63728947943f1f79e9e02e4f9d8b89417c829720f5ebf94ddbab4c9932fd",
+      "test": {
+        "ndcg@5": 0.018694444982055587,
+        "ndcg@10": 0.026496338775207975,
+        "ndcg@20": 0.035477733671847325,
+        "ndcg@50": 0.049112966749879,
+        "ndcg@100": 0.05829823788038182,
+        "ndcg@1000": 0.09598120798605407,
+        "recall@5": 0.02765360975350234,
+        "recall@10": 0.04769024548181548,
+        "recall@20": 0.07674713288450553,
+        "recall@50": 0.13143067583730028,
+        "recall@100": 0.17518252834132786,
+        "recall@1000": 0.41114361057909493,
+        "hit@20": 0.14521057526238873,
+        "hit@50": 0.23688056330543378,
+        "hit@100": 0.30344094592799253,
+        "hit@1000": 0.606084761525176,
+        "comirec-ndcg@20": 0.05561153724110584,
+        "comirec-ndcg@50": 0.07395293320002935
+      }
+    }
+  }
+}

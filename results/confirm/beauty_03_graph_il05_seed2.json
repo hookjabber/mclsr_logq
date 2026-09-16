@@ -1,0 +1,72 @@
+{
+  "experiment": "beauty_mclsr_grid_03_graph_il05_Beauty_confirm_seed2",
+  "params": "configs/train/beauty/03_graph_il05.json",
+  "params_sha256": "18088d7c953ee851ccdb95ffccbcb7d24808d8d0413af0838e612e9ac9c3161e",
+  "artifact_sha256": {
+    "./data/Beauty/item_counts.pkl": "5c9dd832890c569683f2cf6c5a0d34af6acbae03bd7cfcd320f372c5c5cc6aad"
+  },
+  "seed": 2,
+  "step_limit": 250000,
+  "git_commit": "3bc5dea67176d1d7299c2f66e65de25d79590403",
+  "git_dirty": true,
+  "torch_version": "2.4.1+cu121",
+  "protocol": "one test evaluation per pre-registered validation-selected checkpoint; shared no-progress patience across selection metrics",
+  "results": {
+    "validation/ndcg@20": {
+      "selection_metric": "validation/ndcg@20",
+      "validation_value": 0.06155315057702749,
+      "step": 14016,
+      "epoch": 14,
+      "checkpoint": "./checkpoints/beauty_mclsr_grid_03_graph_il05_Beauty_confirm_seed2_best_validation_ndcg_at_20.pth",
+      "checkpoint_sha256": "a7d4a099b9e69a11c13fcfa72d5bf5150d4031c87570698009dd721c06b70a80",
+      "test": {
+        "ndcg@5": 0.03144870137576818,
+        "ndcg@10": 0.04439632345122528,
+        "ndcg@20": 0.05802312557438574,
+        "ndcg@50": 0.07534442197033535,
+        "ndcg@100": 0.08806790989666684,
+        "ndcg@1000": 0.1305268064997241,
+        "recall@5": 0.04248198759764979,
+        "recall@10": 0.07616920289939463,
+        "recall@20": 0.1208615483342269,
+        "recall@50": 0.1906278813436834,
+        "recall@100": 0.25448929376244067,
+        "recall@1000": 0.5414282856280109,
+        "hit@20": 0.18998658918194009,
+        "hit@50": 0.27760393383996423,
+        "hit@100": 0.35896289673670095,
+        "hit@1000": 0.6776933392936969,
+        "comirec-ndcg@20": 0.07968664122016823,
+        "comirec-ndcg@50": 0.09692230091251643
+      }
+    },
+    "validation/recall@1000": {
+      "selection_metric": "validation/recall@1000",
+      "validation_value": 0.5505311670971365,
+      "step": 11648,
+      "epoch": 11,
+      "checkpoint": "./checkpoints/beauty_mclsr_grid_03_graph_il05_Beauty_confirm_seed2_best_validation_recall_at_1000.pth",
+      "checkpoint_sha256": "0b5de63da918a8248c6afb1a6cbc80fd7f0d1bdee1c53adc34a761eb7d6027d6",
+      "test": {
+        "ndcg@5": 0.03204048681749421,
+        "ndcg@10": 0.044439652773968386,
+        "ndcg@20": 0.05710844695901146,
+        "ndcg@50": 0.072687666063856,
+        "ndcg@100": 0.08585351146924133,
+        "ndcg@1000": 0.12960962205542403,
+        "recall@5": 0.04398400119348035,
+        "recall@10": 0.0766597310756406,
+        "recall@20": 0.11840871437904447,
+        "recall@50": 0.18021106550775579,
+        "recall@100": 0.24509370195769709,
+        "recall@1000": 0.541959793128283,
+        "hit@20": 0.1850692892266428,
+        "hit@50": 0.2664282521233795,
+        "hit@100": 0.34957532409476977,
+        "hit@1000": 0.6785873938310237,
+        "comirec-ndcg@20": 0.07808768959731782,
+        "comirec-ndcg@50": 0.09404474733314933
+      }
+    }
+  }
+}
