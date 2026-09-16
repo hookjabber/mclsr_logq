@@ -32,6 +32,24 @@ def unwrap_state_dict(checkpoint):
     return checkpoint
 
 
+def best_checkpoint_path(checkpoint_stem, metric_name, primary_metric):
+    if metric_name == primary_metric:
+        suffix = 'best_state'  # historical name for the primary metric
+    else:
+        suffix = 'best_{}'.format(
+            metric_name.replace('/', '_').replace('@', '_at_'),
+        )
+    return './checkpoints/{}_{}.pth'.format(checkpoint_stem, suffix)
+
+
+def atomic_save(obj, path):
+    """Write to a temp file next to `path`, then rename: a run killed in the
+    middle of a save never leaves a truncated checkpoint behind."""
+    tmp_path = path + '.tmp'
+    torch.save(obj, tmp_path)
+    os.replace(tmp_path, path)
+
+
 def train(
     dataloader,
     model,
@@ -42,13 +60,18 @@ def train(
     step_cnt=None,
     best_metric=None,
     epochs_threshold=40,
+    on_improvement=None,
 ):
     """`best_metric`: None (final state only), one metric name, or a LIST of
     names — one independently tracked best checkpoint per metric. Returns
     {metric_name: {'state': cpu_state_dict, 'value', 'step', 'epoch'}}
     (empty when best_metric is None). States are copied to CPU immediately so
     several tracked bests do not accumulate on the GPU. NB the no-progress
-    patience is shared: an improvement in ANY tracked metric resets it."""
+    patience is shared: an improvement in ANY tracked metric resets it.
+    `on_improvement(metric_name, best)` (optional) is called right after a
+    tracked best is updated — used to persist the best state immediately, so
+    an interrupted run (Ctrl+C, node reboot) still leaves its best checkpoint
+    on disk instead of only in memory."""
     step_num = 0
     epoch_num = 0
 
@@ -113,6 +136,8 @@ def train(
                         'epoch': epoch_num,
                     }
                     best_epoch = epoch_num
+                    if on_improvement is not None:
+                        on_improvement(name, best_checkpoints[name])
 
         epoch_num += 1
     logger.debug('Training procedure has been finished!')
@@ -187,10 +212,16 @@ def main():
         model.load_state_dict(unwrap_state_dict(checkpoint))
 
     loss_function = BaseLoss.create_from_config(config['loss'])
+    if isinstance(loss_function, torch.nn.Module):
+        loss_function = loss_function.to(DEVICE)
 
     optimizer = BaseOptimizer.create_from_config(
         config['optimizer'],
         model=model,
+        extra_parameters=(
+            list(loss_function.parameters())
+            if isinstance(loss_function, torch.nn.Module) else []
+        ),
     )
 
     callback = BaseCallback.create_from_config(
@@ -207,6 +238,26 @@ def main():
     # TODO create pre/post callbacks
     logger.debug('Everything is ready for training process!')
 
+    # the effective seed always lands in the name so that multi-seed runs of
+    # one config (and default-seed reruns) never overwrite each other
+    checkpoint_stem = '{}_seed{}'.format(
+        config['experiment_name'],
+        config.get('seed', seed_val),
+    )
+    primary_metric = config.get('best_metric')
+    if isinstance(primary_metric, list):
+        primary_metric = primary_metric[0] if primary_metric else None
+    ensure_checkpoints_dir()
+
+    def save_best(metric_name, best):
+        path = best_checkpoint_path(checkpoint_stem, metric_name, primary_metric)
+        atomic_save(best['state'], path)
+        logger.debug(
+            'Saved best checkpoint (by {} = {:.5f} @ step {}) as {}'.format(
+                metric_name, best['value'], best['step'], path,
+            ),
+        )
+
     # Train process
     best_checkpoints = train(
         dataloader=train_dataloader,
@@ -218,44 +269,17 @@ def main():
         step_cnt=config.get('train_steps_num'),
         best_metric=config.get('best_metric'),
         epochs_threshold=config.get('epochs_threshold', 40),
+        on_improvement=save_best,  # best states hit the disk as they appear
     )
 
     logger.debug('Saving model...')
-    ensure_checkpoints_dir()
-    # the effective seed always lands in the name so that multi-seed runs of
-    # one config (and default-seed reruns) never overwrite each other
-    checkpoint_stem = '{}_seed{}'.format(
-        config['experiment_name'],
-        config.get('seed', seed_val),
-    )
     checkpoint_path = './checkpoints/{}_final_state.pth'.format(
         checkpoint_stem,
     )
-    torch.save(model.state_dict(), checkpoint_path)
+    atomic_save(model.state_dict(), checkpoint_path)
     logger.debug('Saved model as {}'.format(checkpoint_path))
-
-    primary_metric = config.get('best_metric')
-    if isinstance(primary_metric, list):
-        primary_metric = primary_metric[0] if primary_metric else None
     for metric_name, best in best_checkpoints.items():
-        if metric_name == primary_metric:
-            suffix = 'best_state'  # historical name for the primary metric
-        else:
-            suffix = 'best_{}'.format(
-                metric_name.replace('/', '_').replace('@', '_at_'),
-            )
-        best_checkpoint_path = './checkpoints/{}_{}.pth'.format(
-            checkpoint_stem, suffix,
-        )
-        torch.save(best['state'], best_checkpoint_path)
-        logger.debug(
-            'Saved best checkpoint (by {} = {:.5f} @ step {}) as {}'.format(
-                metric_name,
-                best['value'],
-                best['step'],
-                best_checkpoint_path,
-            ),
-        )
+        save_best(metric_name, best)  # idempotent: same path, same state
 
     if config.get('use_wandb', False):
         import wandb

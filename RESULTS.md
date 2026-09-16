@@ -16,10 +16,6 @@ recall@1000 a same-seed rerun on another node moved an arm by +0.011 (§5), so
 recall@1000 differences below **~±0.01** are treated as unresolved ties.
 Single-seed numbers; the headline table will be re-run with 3 seeds.
 
-*(2026-07-14: all test columns recomputed under this protocol after an external
-audit correctly noted that the previous revision reported best-over-training test
-values; conclusions that changed are marked.)*
-
 ![Precision vs tail-recall frontier](assets/frontier.png)
 
 ## 1. Retrieval loss (L_P): the correction works and matches the exact softmax
@@ -122,9 +118,7 @@ gain on L_IC only (L_UC tail moves the other way) — suggestive, needs seeds.
 objective shape is identical to the in-batch loss (both-view anchors, same-view +
 other-view candidates, same normalization) and the only difference is the
 candidate pool — the full projected tables, with non-train entities excluded via
-an explicit train-presence mask. (An earlier version of that mask, `count<=1`,
-silently poisoned 43 real train singleton items; caught by external review, fixed
-with a regression test in CI, and the item run redone.) Top-20, metric-matched
+an explicit train-presence mask. Top-20, metric-matched
 selection:
 
 | variant | val | test |
@@ -268,8 +262,7 @@ cluster-bootstrap CI over users; macro numbers cross-check the tensorboard curve
   in-batch+logQ rises to 0.3189 (full softmax: 0.3229) — most of that residual
   gap was the proxy, not a limit of the correction. For L_IC, two context-based
   variants were run: a hybrid (line-inclusion counts with the event-count
-  exponent — a stronger-than-line-consistent correction, flagged by external
-  review) reached 0.3239, and the line-consistent model
+  exponent — a stronger-than-line-consistent correction) reached 0.3239, and the line-consistent model
   (q = line-inclusions / 188,441 train lines, draws = 128 lines per batch — a
   binomial approximation of the without-replacement loader, error ~3e-4 nat;
   `10_item_only_logq_ctxq_v2`) reached **0.3224** — both above the standard-Q

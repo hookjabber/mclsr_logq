@@ -10,7 +10,6 @@ checkpoints/
 runs/
 .ipynb_checkpoints/
 .DS_Store
-.claude/
 tensorboard_logs/
 new_tensorboard_logs/
 docs/

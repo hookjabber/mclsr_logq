@@ -36,8 +36,10 @@ class BasicOptimizer(BaseOptimizer, config_name='basic'):
     @classmethod
     def create_from_config(cls, config, **kwargs):
         optimizer_cfg = copy.deepcopy(config['optimizer'])
+        # loss modules may carry parameters of their own (learned loss weights)
+        parameters = list(kwargs['model'].parameters()) + list(kwargs.get('extra_parameters', []))
         optimizer = OPTIMIZERS[optimizer_cfg.pop('type')](
-            kwargs['model'].parameters(),
+            parameters,
             **optimizer_cfg,
         )
 

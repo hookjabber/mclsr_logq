@@ -40,7 +40,7 @@ from irec.dataset import BaseDataset  # noqa: E402
 from irec.loss import BaseLoss  # noqa: E402
 from irec.models import BaseModel  # noqa: E402
 from irec.optimizer import BaseOptimizer  # noqa: E402
-from irec.train import train  # noqa: E402
+from irec.train import atomic_save, train  # noqa: E402
 from irec.utils import DEVICE, ensure_checkpoints_dir, fix_random_seed  # noqa: E402
 
 
@@ -146,7 +146,12 @@ def main():
 
     model = BaseModel.create_from_config(config['model'], **dataset.meta).to(DEVICE)
     loss_function = BaseLoss.create_from_config(config['loss'])
-    optimizer = BaseOptimizer.create_from_config(config['optimizer'], model=model)
+    if isinstance(loss_function, torch.nn.Module):
+        loss_function = loss_function.to(DEVICE)
+    optimizer = BaseOptimizer.create_from_config(
+        config['optimizer'], model=model,
+        extra_parameters=list(loss_function.parameters()) if isinstance(loss_function, torch.nn.Module) else [],
+    )
     callback = BaseCallback.create_from_config(
         train_callback_config,
         model=model,
@@ -156,6 +161,12 @@ def main():
         optimizer=optimizer,
         **dataset.meta,
     )
+
+    ensure_checkpoints_dir()
+
+    def checkpoint_path(metric_name):
+        slug = metric_name.replace('/', '_').replace('@', '_at_')
+        return './checkpoints/{}_best_{}.pth'.format(experiment, slug)
 
     best_checkpoints = train(
         dataloader=train_dataloader,
@@ -167,6 +178,8 @@ def main():
         step_cnt=step_limit,
         best_metric=args.select,
         epochs_threshold=config.get('epochs_threshold', 40),
+        # best states hit the disk as they appear (an interrupted run keeps them)
+        on_improvement=lambda name, best: atomic_save(best['state'], checkpoint_path(name)),
     )
     if not best_checkpoints:
         raise SystemExit('no best checkpoint captured — check --select names')
@@ -184,7 +197,6 @@ def main():
         config['dataloader']['validation'], dataset=test_sampler, **dataset.meta,
     )
 
-    ensure_checkpoints_dir()
     inference_config = get_inference_config(config, 'eval')
     artifact_hashes = {}
     def collect_paths(node):
@@ -222,9 +234,8 @@ def main():
         'results': {},
     }
     for metric_name, best in best_checkpoints.items():
-        slug = metric_name.replace('/', '_').replace('@', '_at_')
-        path = './checkpoints/{}_best_{}.pth'.format(experiment, slug)
-        torch.save(best['state'], path)
+        path = checkpoint_path(metric_name)
+        atomic_save(best['state'], path)
         model.load_state_dict(best['state'])
         test_metrics = evaluate(
             model=model,
