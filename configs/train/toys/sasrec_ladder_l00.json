@@ -1,5 +1,5 @@
 {
-  "experiment_name": "toys_sasrec_inbatch_l00_Toys",
+  "experiment_name": "toys_sasrec_ladder_l00_Toys",
   "use_wandb": false,
   "best_metric": "validation/ndcg@20",
   "dataset": {
@@ -14,7 +14,8 @@
     },
     "eval_sampler": {
       "type": "mclsr"
-    }
+    },
+    "train_part": "train_mclsr"
   },
   "dataloader": {
     "train": {
@@ -48,7 +49,8 @@
     "activation": "relu",
     "layer_norm_eps": 1e-09,
     "initializer_range": 0.02,
-    "eval_top_k": 1000
+    "eval_top_k": 1000,
+    "query_positions": "last"
   },
   "optimizer": {
     "type": "basic",
@@ -69,7 +71,8 @@
         "path_to_item_counts": "./data/Toys/item_counts.pkl",
         "logq_lambda": 0.0,
         "output_prefix": "downstream_loss",
-        "weight": 1.0
+        "weight": 1.0,
+        "user_ids_prefix": "user_ids"
       }
     ],
     "output_prefix": "loss"
@@ -140,30 +143,6 @@
           "comirec-ndcg@50": {
             "type": "comirec-ndcg",
             "k": 50
-          },
-          "ndcg@100": {
-            "type": "mclsr-ndcg",
-            "k": 100
-          },
-          "recall@100": {
-            "type": "mclsr-recall",
-            "k": 100
-          },
-          "hit@100": {
-            "type": "mclsr-hit",
-            "k": 100
-          },
-          "ndcg@1000": {
-            "type": "mclsr-ndcg",
-            "k": 1000
-          },
-          "recall@1000": {
-            "type": "mclsr-recall",
-            "k": 1000
-          },
-          "hit@1000": {
-            "type": "mclsr-hit",
-            "k": 1000
           }
         }
       },
@@ -220,30 +199,6 @@
           "comirec-ndcg@50": {
             "type": "comirec-ndcg",
             "k": 50
-          },
-          "ndcg@100": {
-            "type": "mclsr-ndcg",
-            "k": 100
-          },
-          "recall@100": {
-            "type": "mclsr-recall",
-            "k": 100
-          },
-          "hit@100": {
-            "type": "mclsr-hit",
-            "k": 100
-          },
-          "ndcg@1000": {
-            "type": "mclsr-ndcg",
-            "k": 1000
-          },
-          "recall@1000": {
-            "type": "mclsr-recall",
-            "k": 1000
-          },
-          "hit@1000": {
-            "type": "mclsr-hit",
-            "k": 1000
           }
         }
       }

@@ -140,6 +140,30 @@
           "comirec-ndcg@50": {
             "type": "comirec-ndcg",
             "k": 50
+          },
+          "ndcg@100": {
+            "type": "mclsr-ndcg",
+            "k": 100
+          },
+          "recall@100": {
+            "type": "mclsr-recall",
+            "k": 100
+          },
+          "hit@100": {
+            "type": "mclsr-hit",
+            "k": 100
+          },
+          "ndcg@1000": {
+            "type": "mclsr-ndcg",
+            "k": 1000
+          },
+          "recall@1000": {
+            "type": "mclsr-recall",
+            "k": 1000
+          },
+          "hit@1000": {
+            "type": "mclsr-hit",
+            "k": 1000
           }
         }
       },
@@ -196,6 +220,30 @@
           "comirec-ndcg@50": {
             "type": "comirec-ndcg",
             "k": 50
+          },
+          "ndcg@100": {
+            "type": "mclsr-ndcg",
+            "k": 100
+          },
+          "recall@100": {
+            "type": "mclsr-recall",
+            "k": 100
+          },
+          "hit@100": {
+            "type": "mclsr-hit",
+            "k": 100
+          },
+          "ndcg@1000": {
+            "type": "mclsr-ndcg",
+            "k": 1000
+          },
+          "recall@1000": {
+            "type": "mclsr-recall",
+            "k": 1000
+          },
+          "hit@1000": {
+            "type": "mclsr-hit",
+            "k": 1000
           }
         }
       }

@@ -1,5 +1,5 @@
 {
-  "experiment_name": "toys_sasrec_inbatch_l00_Toys",
+  "experiment_name": "toys_sasrec_inbatch_corrected_Toys",
   "use_wandb": false,
   "best_metric": "validation/ndcg@20",
   "dataset": {
@@ -67,9 +67,10 @@
         "positive_prefix": "positive_embeddings",
         "positive_ids_prefix": "positive_ids",
         "path_to_item_counts": "./data/Toys/item_counts.pkl",
-        "logq_lambda": 0.0,
+        "logq_lambda": 1.0,
         "output_prefix": "downstream_loss",
-        "weight": 1.0
+        "weight": 1.0,
+        "variant": "corrected"
       }
     ],
     "output_prefix": "loss"
@@ -140,30 +141,6 @@
           "comirec-ndcg@50": {
             "type": "comirec-ndcg",
             "k": 50
-          },
-          "ndcg@100": {
-            "type": "mclsr-ndcg",
-            "k": 100
-          },
-          "recall@100": {
-            "type": "mclsr-recall",
-            "k": 100
-          },
-          "hit@100": {
-            "type": "mclsr-hit",
-            "k": 100
-          },
-          "ndcg@1000": {
-            "type": "mclsr-ndcg",
-            "k": 1000
-          },
-          "recall@1000": {
-            "type": "mclsr-recall",
-            "k": 1000
-          },
-          "hit@1000": {
-            "type": "mclsr-hit",
-            "k": 1000
           }
         }
       },
@@ -220,30 +197,6 @@
           "comirec-ndcg@50": {
             "type": "comirec-ndcg",
             "k": 50
-          },
-          "ndcg@100": {
-            "type": "mclsr-ndcg",
-            "k": 100
-          },
-          "recall@100": {
-            "type": "mclsr-recall",
-            "k": 100
-          },
-          "hit@100": {
-            "type": "mclsr-hit",
-            "k": 100
-          },
-          "ndcg@1000": {
-            "type": "mclsr-ndcg",
-            "k": 1000
-          },
-          "recall@1000": {
-            "type": "mclsr-recall",
-            "k": 1000
-          },
-          "hit@1000": {
-            "type": "mclsr-hit",
-            "k": 1000
           }
         }
       }

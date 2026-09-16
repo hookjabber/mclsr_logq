@@ -20,11 +20,16 @@ from irec.models import BaseModel  # noqa: E402
 from irec.optimizer import BaseOptimizer  # noqa: E402
 
 ROOT = os.path.join(os.path.dirname(__file__), '..')
-MAINTAINED = sorted(
-    glob.glob(os.path.join(ROOT, 'configs/train/grid/*.json'))
-    + glob.glob(os.path.join(ROOT, 'configs/train/*.json'))
-)
 LEGACY = sorted(glob.glob(os.path.join(ROOT, 'configs/train/legacy/*.json')))
+# every dataset grid (grid/ = Clothing, toys/, beauty/, ...) plus the root configs;
+# only legacy/ is exempt from validation
+MAINTAINED = sorted(
+    path for path in (
+        glob.glob(os.path.join(ROOT, 'configs/train/*/*.json'))
+        + glob.glob(os.path.join(ROOT, 'configs/train/*.json'))
+    )
+    if path not in LEGACY
+)
 
 TOP_KEYS = ('experiment_name', 'dataset', 'dataloader', 'model', 'optimizer', 'loss', 'callback')
 

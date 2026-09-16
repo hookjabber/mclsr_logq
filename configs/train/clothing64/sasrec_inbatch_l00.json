@@ -1,11 +1,11 @@
 {
-  "experiment_name": "toys_sasrec_inbatch_l00_Toys",
+  "experiment_name": "sasrec_inbatch_l00_e64_Clothing",
   "use_wandb": false,
   "best_metric": "validation/ndcg@20",
   "dataset": {
     "type": "sasrec_comparison",
     "path_to_data_dir": "./data",
-    "name": "Toys",
+    "name": "Clothing",
     "max_sequence_length": 20,
     "train_sampler": {
       "type": "next_item_prediction",
@@ -66,7 +66,7 @@
         "queries_prefix": "query_embeddings",
         "positive_prefix": "positive_embeddings",
         "positive_ids_prefix": "positive_ids",
-        "path_to_item_counts": "./data/Toys/item_counts.pkl",
+        "path_to_item_counts": "./data/Clothing/item_counts.pkl",
         "logq_lambda": 0.0,
         "output_prefix": "downstream_loss",
         "weight": 1.0
@@ -169,7 +169,7 @@
       },
       {
         "type": "eval",
-        "on_step": 256,
+        "on_step": 64,
         "pred_prefix": "predictions",
         "labels_prefix": "labels",
         "metrics": {

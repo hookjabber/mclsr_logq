@@ -1,11 +1,11 @@
 {
-  "experiment_name": "toys_sasrec_inbatch_l00_Toys",
+  "experiment_name": "beauty_sasrec_baseline_Beauty",
   "use_wandb": false,
   "best_metric": "validation/ndcg@20",
   "dataset": {
     "type": "sasrec_comparison",
     "path_to_data_dir": "./data",
-    "name": "Toys",
+    "name": "Beauty",
     "max_sequence_length": 20,
     "train_sampler": {
       "type": "next_item_prediction",
@@ -37,7 +37,7 @@
     }
   },
   "model": {
-    "type": "sasrec_in_batch",
+    "type": "sasrec",
     "sequence_prefix": "item",
     "positive_prefix": "positive",
     "embedding_dim": 64,
@@ -62,14 +62,10 @@
     "type": "composite",
     "losses": [
       {
-        "type": "mclsr_logq_inbatch",
-        "queries_prefix": "query_embeddings",
-        "positive_prefix": "positive_embeddings",
-        "positive_ids_prefix": "positive_ids",
-        "path_to_item_counts": "./data/Toys/item_counts.pkl",
-        "logq_lambda": 0.0,
-        "output_prefix": "downstream_loss",
-        "weight": 1.0
+        "type": "sasrec",
+        "positive_prefix": "positive_scores",
+        "negative_prefix": "negative_scores",
+        "output_prefix": "downstream_loss"
       }
     ],
     "output_prefix": "loss"
@@ -81,11 +77,6 @@
         "type": "metric",
         "on_step": 1,
         "loss_prefix": "loss"
-      },
-      {
-        "type": "metric",
-        "on_step": 1,
-        "loss_prefix": "downstream_loss"
       },
       {
         "type": "validation",
@@ -133,14 +124,6 @@
             "type": "mclsr-hit",
             "k": 50
           },
-          "comirec-ndcg@20": {
-            "type": "comirec-ndcg",
-            "k": 20
-          },
-          "comirec-ndcg@50": {
-            "type": "comirec-ndcg",
-            "k": 50
-          },
           "ndcg@100": {
             "type": "mclsr-ndcg",
             "k": 100
@@ -169,7 +152,7 @@
       },
       {
         "type": "eval",
-        "on_step": 256,
+        "on_step": 64,
         "pred_prefix": "predictions",
         "labels_prefix": "labels",
         "metrics": {
@@ -211,14 +194,6 @@
           },
           "hit@50": {
             "type": "mclsr-hit",
-            "k": 50
-          },
-          "comirec-ndcg@20": {
-            "type": "comirec-ndcg",
-            "k": 20
-          },
-          "comirec-ndcg@50": {
-            "type": "comirec-ndcg",
             "k": 50
           },
           "ndcg@100": {

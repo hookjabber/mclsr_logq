@@ -1,19 +1,23 @@
 {
-  "experiment_name": "toys_sasrec_inbatch_l00_Toys",
+  "experiment_name": "beauty_mclsr_grid_17_user_only_full_matched_Beauty",
   "use_wandb": false,
   "best_metric": "validation/ndcg@20",
   "dataset": {
-    "type": "sasrec_comparison",
-    "path_to_data_dir": "./data",
-    "name": "Toys",
-    "max_sequence_length": 20,
-    "train_sampler": {
-      "type": "next_item_prediction",
-      "negative_sampler_type": "random",
-      "num_negatives_train": 0
-    },
-    "eval_sampler": {
-      "type": "mclsr"
+    "type": "graph",
+    "use_train_data_only": true,
+    "use_user_graph": true,
+    "use_item_graph": false,
+    "neighborhood_size": 50,
+    "graph_dir_path": "./data/Beauty",
+    "dataset": {
+      "type": "mclsr",
+      "path_to_data_dir": "./data",
+      "name": "Beauty",
+      "max_sequence_length": 20,
+      "samplers": {
+        "num_negatives_train": 0,
+        "type": "mclsr"
+      }
     }
   },
   "dataloader": {
@@ -24,7 +28,8 @@
         "type": "basic"
       },
       "drop_last": true,
-      "shuffle": true
+      "shuffle": true,
+      "pin_memory": true
     },
     "validation": {
       "type": "torch",
@@ -33,43 +38,58 @@
         "type": "basic"
       },
       "drop_last": false,
-      "shuffle": false
+      "shuffle": false,
+      "pin_memory": true
     }
   },
   "model": {
-    "type": "sasrec_in_batch",
+    "type": "mclsr",
     "sequence_prefix": "item",
-    "positive_prefix": "positive",
+    "user_prefix": "user",
+    "labels_prefix": "labels",
+    "eval_top_k": 1000,
     "embedding_dim": 64,
-    "num_heads": 2,
-    "num_layers": 2,
-    "dim_feedforward": 256,
+    "num_graph_layers": 2,
     "dropout": 0.3,
-    "activation": "relu",
     "layer_norm_eps": 1e-09,
+    "graph_dropout": 0.3,
     "initializer_range": 0.02,
-    "eval_top_k": 1000
+    "alpha": 0.5,
+    "use_graph": true,
+    "output_full_contrastive_tables": true
   },
   "optimizer": {
     "type": "basic",
     "optimizer": {
       "type": "adam",
       "lr": 0.001
-    },
-    "clip_grad_threshold": 1.0
+    }
   },
   "loss": {
     "type": "composite",
     "losses": [
       {
         "type": "mclsr_logq_inbatch",
-        "queries_prefix": "query_embeddings",
-        "positive_prefix": "positive_embeddings",
+        "queries_prefix": "combined_representation",
+        "positive_prefix": "label_representation",
         "positive_ids_prefix": "positive_ids",
-        "path_to_item_counts": "./data/Toys/item_counts.pkl",
-        "logq_lambda": 0.0,
+        "user_ids_prefix": "user_ids",
+        "path_to_item_counts": "./data/Beauty/item_counts.pkl",
+        "logq_lambda": 1.0,
         "output_prefix": "downstream_loss",
         "weight": 1.0
+      },
+      {
+        "type": "contrastive_full_softmax_matched",
+        "fst_anchors_prefix": "user_graph_user_embeddings",
+        "snd_anchors_prefix": "common_graph_user_embeddings",
+        "fst_table_prefix": "user_graph_user_table",
+        "snd_table_prefix": "common_graph_user_table",
+        "ids_prefix": "user_ids",
+        "temperature": 0.5,
+        "output_prefix": "contrastive_user_feature_loss",
+        "weight": 0.05,
+        "path_to_train_presence": "./data/Beauty/train_presence_users.pkl"
       }
     ],
     "output_prefix": "loss"
@@ -86,6 +106,11 @@
         "type": "metric",
         "on_step": 1,
         "loss_prefix": "downstream_loss"
+      },
+      {
+        "type": "metric",
+        "on_step": 1,
+        "loss_prefix": "contrastive_user_feature_loss"
       },
       {
         "type": "validation",
@@ -109,6 +134,14 @@
             "type": "mclsr-ndcg",
             "k": 50
           },
+          "ndcg@100": {
+            "type": "mclsr-ndcg",
+            "k": 100
+          },
+          "ndcg@1000": {
+            "type": "mclsr-ndcg",
+            "k": 1000
+          },
           "recall@5": {
             "type": "mclsr-recall",
             "k": 5
@@ -125,6 +158,14 @@
             "type": "mclsr-recall",
             "k": 50
           },
+          "recall@100": {
+            "type": "mclsr-recall",
+            "k": 100
+          },
+          "recall@1000": {
+            "type": "mclsr-recall",
+            "k": 1000
+          },
           "hit@20": {
             "type": "mclsr-hit",
             "k": 20
@@ -133,6 +174,14 @@
             "type": "mclsr-hit",
             "k": 50
           },
+          "hit@100": {
+            "type": "mclsr-hit",
+            "k": 100
+          },
+          "hit@1000": {
+            "type": "mclsr-hit",
+            "k": 1000
+          },
           "comirec-ndcg@20": {
             "type": "comirec-ndcg",
             "k": 20
@@ -140,36 +189,12 @@
           "comirec-ndcg@50": {
             "type": "comirec-ndcg",
             "k": 50
-          },
-          "ndcg@100": {
-            "type": "mclsr-ndcg",
-            "k": 100
-          },
-          "recall@100": {
-            "type": "mclsr-recall",
-            "k": 100
-          },
-          "hit@100": {
-            "type": "mclsr-hit",
-            "k": 100
-          },
-          "ndcg@1000": {
-            "type": "mclsr-ndcg",
-            "k": 1000
-          },
-          "recall@1000": {
-            "type": "mclsr-recall",
-            "k": 1000
-          },
-          "hit@1000": {
-            "type": "mclsr-hit",
-            "k": 1000
           }
         }
       },
       {
         "type": "eval",
-        "on_step": 256,
+        "on_step": 64,
         "pred_prefix": "predictions",
         "labels_prefix": "labels",
         "metrics": {
@@ -189,6 +214,14 @@
             "type": "mclsr-ndcg",
             "k": 50
           },
+          "ndcg@100": {
+            "type": "mclsr-ndcg",
+            "k": 100
+          },
+          "ndcg@1000": {
+            "type": "mclsr-ndcg",
+            "k": 1000
+          },
           "recall@5": {
             "type": "mclsr-recall",
             "k": 5
@@ -205,6 +238,14 @@
             "type": "mclsr-recall",
             "k": 50
           },
+          "recall@100": {
+            "type": "mclsr-recall",
+            "k": 100
+          },
+          "recall@1000": {
+            "type": "mclsr-recall",
+            "k": 1000
+          },
           "hit@20": {
             "type": "mclsr-hit",
             "k": 20
@@ -213,6 +254,14 @@
             "type": "mclsr-hit",
             "k": 50
           },
+          "hit@100": {
+            "type": "mclsr-hit",
+            "k": 100
+          },
+          "hit@1000": {
+            "type": "mclsr-hit",
+            "k": 1000
+          },
           "comirec-ndcg@20": {
             "type": "comirec-ndcg",
             "k": 20
@@ -220,30 +269,6 @@
           "comirec-ndcg@50": {
             "type": "comirec-ndcg",
             "k": 50
-          },
-          "ndcg@100": {
-            "type": "mclsr-ndcg",
-            "k": 100
-          },
-          "recall@100": {
-            "type": "mclsr-recall",
-            "k": 100
-          },
-          "hit@100": {
-            "type": "mclsr-hit",
-            "k": 100
-          },
-          "ndcg@1000": {
-            "type": "mclsr-ndcg",
-            "k": 1000
-          },
-          "recall@1000": {
-            "type": "mclsr-recall",
-            "k": 1000
-          },
-          "hit@1000": {
-            "type": "mclsr-hit",
-            "k": 1000
           }
         }
       }
