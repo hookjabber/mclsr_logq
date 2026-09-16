@@ -325,6 +325,8 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
                     'positive_ids': labels,
                     'negative_ids': negative_ids,
                     'user_ids': user_ids,
+                    # raw item table for the exact full-catalog softmax anchor
+                    'item_embedding_table': self._item_embeddings.weight,
                 }
 
             # general interest
@@ -399,6 +401,9 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
                 # for L_IL (formula 8)
                 'sequential_representation': sequential_representation_proj,
                 'graph_representation': graph_representation_proj,
+
+                # raw item table for the exact full-catalog softmax anchor
+                'item_embedding_table': self._item_embeddings.weight,
             }
 
             if self._user_graph is not None:

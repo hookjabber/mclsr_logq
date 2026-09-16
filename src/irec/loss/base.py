@@ -4,6 +4,7 @@ from irec.utils import (
 )
 
 import copy
+import math
 import torch
 import torch.nn as nn
 import pickle
@@ -91,6 +92,54 @@ class CompositeLoss(TorchLoss, config_name='composite'):
             inputs[self._output_prefix] = total_loss.cpu().item()
 
         return total_loss
+
+
+class UncertaintyCompositeLoss(TorchLoss, config_name='composite_uncertainty'):
+    """
+    Composite loss with learned weights (Kendall, Gal & Cipolla 2018): for every
+    term flagged `learn_weight`, weight = exp(-s) with a learnable s = log sigma^2
+    and the regulariser +s; s is initialised so that exp(-s) equals the configured
+    weight. Terms without the flag keep their fixed weight (the retrieval loss
+    stays fixed as the anchor). Effective weights are written to
+    inputs['weight/<output_prefix>'] for logging.
+    """
+    def __init__(self, losses, weights, learn, output_prefix=None):
+        super().__init__()
+        self._losses = nn.ModuleList(losses)
+        self._weights = weights
+        self._learn = learn
+        self._log_vars = nn.ParameterList([
+            nn.Parameter(torch.tensor(-math.log(w), dtype=torch.float32))
+            for w, flag in zip(weights, learn) if flag
+        ])
+        self._output_prefix = output_prefix
+
+    @classmethod
+    def create_from_config(cls, config, **kwargs):
+        losses, weights, learn = [], [], []
+        for loss_cfg in copy.deepcopy(config)['losses']:
+            weights.append(loss_cfg.pop('weight') if 'weight' in loss_cfg else 1.0)
+            learn.append(bool(loss_cfg.pop('learn_weight', False)))
+            losses.append(BaseLoss.create_from_config(loss_cfg))
+        return cls(losses=losses, weights=weights, learn=learn, output_prefix=config.get('output_prefix'))
+
+    def forward(self, inputs):
+        total = 0.0
+        k = 0
+        for loss, weight, flag in zip(self._losses, self._weights, self._learn):
+            value = loss(inputs)
+            if flag:
+                s = self._log_vars[k]; k += 1
+                effective = torch.exp(-s)
+                total = total + effective * value + s
+                prefix = getattr(loss, '_output_prefix', None)
+                if prefix:
+                    inputs['weight/' + prefix] = float(effective.detach().cpu())
+            else:
+                total = total + weight * value
+        if self._output_prefix is not None:
+            inputs[self._output_prefix] = total.cpu().item()
+        return total
 
 
 class FpsLoss(TorchLoss, config_name='fps'):
@@ -281,12 +330,20 @@ class FpsLogQLoss(TorchLoss, config_name='fps_logq'):
         counts_denominator=None,
         expected_counts_role=None,
         expected_counts_max_len=None,
+        similarity='dot',
+        center_log_q=False,
     ):
         super().__init__()
         self._fst_embeddings_prefix = fst_embeddings_prefix
         self._snd_embeddings_prefix = snd_embeddings_prefix
         self._ids_prefix = ids_prefix
         self._tau = tau
+        self._similarity = similarity
+        # keep only the zero-mean part of the correction: removes the uniform
+        # negatives-vs-positive margin, leaves pure reweighting between candidates
+        self._center_log_q = center_log_q
+        if self._similarity not in ('dot', 'euclidean'):
+            raise ValueError(f'Unknown fps_logq similarity `{self._similarity}`')
         self._logq_lambda = logq_lambda
         self._logq_probability_mode = logq_probability_mode
         self._num_draws_prefix = num_draws_prefix
@@ -384,7 +441,27 @@ class FpsLogQLoss(TorchLoss, config_name='fps_logq'):
             counts_denominator=config.get('counts_denominator'),
             expected_counts_role=config.get('expected_counts_role'),
             expected_counts_max_len=config.get('expected_counts_max_len'),
+            similarity=config.get('similarity', 'dot'),
+            center_log_q=config.get('center_log_q', False),
         )
+
+    def _centered(self, candidate_log_q):
+        if not self._center_log_q:
+            return candidate_log_q
+        if candidate_log_q.dim() == 2:
+            return candidate_log_q - candidate_log_q.mean(dim=1, keepdim=True)
+        return candidate_log_q - candidate_log_q.mean()
+
+    def _pairwise_scores(self, queries, candidates):
+        # same scoring as FpsLoss: dot / tau, or -||a-b||^2 / tau (exact
+        # cdist mode keeps the symmetric scheme's mirrored diagonal exact)
+        if self._similarity == 'euclidean':
+            distances = torch.cdist(
+                queries, candidates,
+                compute_mode='donot_use_mm_for_euclid_dist',
+            )
+            return -distances ** 2 / self._tau
+        return torch.mm(queries, candidates.T) / self._tau
 
     def _sample_log_q(self, ids, num_negative_draws, device):
         if self._logq_probability_mode == 'sample':
@@ -470,7 +547,7 @@ class FpsLogQLoss(TorchLoss, config_name='fps_logq'):
                 snd_embeddings = torch.nn.functional.normalize(
                     snd_embeddings, p=2, dim=-1, eps=1e-6,
                 )
-            all_scores = torch.mm(fst_embeddings, snd_embeddings.T) / self._tau
+            all_scores = self._pairwise_scores(fst_embeddings, snd_embeddings)
             device = all_scores.device
             ids = ids.to(device=device)
             if self._num_draws_prefix is not None:
@@ -481,15 +558,15 @@ class FpsLogQLoss(TorchLoss, config_name='fps_logq'):
                 num_negative_draws = batch_size - 1
 
             if self._leave_own_out:
-                candidate_log_q = self._loo_log_q_square(
+                candidate_log_q = self._centered(self._loo_log_q_square(
                     ids, num_negative_draws, device,
-                )  # (B, B)
+                ))  # (B, B)
                 all_scores = all_scores - self._logq_lambda * candidate_log_q
                 positive_log_q = candidate_log_q.diagonal()
             else:
-                candidate_log_q = self._sample_log_q(
+                candidate_log_q = self._centered(self._sample_log_q(
                     ids, num_negative_draws, device,
-                )  # (B,)
+                ))  # (B,)
                 all_scores = all_scores - self._logq_lambda * candidate_log_q.unsqueeze(0)
                 positive_log_q = candidate_log_q
 
@@ -520,8 +597,8 @@ class FpsLogQLoss(TorchLoss, config_name='fps_logq'):
                 eps=1e-6,
             )
 
-        all_scores = (
-            torch.mm(combined_embeddings, combined_embeddings.T) / self._tau
+        all_scores = self._pairwise_scores(
+            combined_embeddings, combined_embeddings,
         )  # (2 * B, 2 * B)
 
         device = all_scores.device
@@ -534,14 +611,14 @@ class FpsLogQLoss(TorchLoss, config_name='fps_logq'):
             num_negative_draws = batch_size - 1
 
         if self._leave_own_out:
-            candidate_log_q = self._candidate_log_q_leave_own_out(
+            candidate_log_q = self._centered(self._candidate_log_q_leave_own_out(
                 ids, num_negative_draws, device,
-            )  # (2 * B, 2 * B), row = anchor, column = candidate
+            ))  # (2 * B, 2 * B), row = anchor, column = candidate
             all_scores = all_scores - self._logq_lambda * candidate_log_q
         else:
-            candidate_log_q = self._candidate_log_q(
+            candidate_log_q = self._centered(self._candidate_log_q(
                 ids, num_negative_draws, device,
-            )  # (2 * B,)
+            ))  # (2 * B,)
             all_scores = all_scores - self._logq_lambda * candidate_log_q.unsqueeze(0)
 
         num_views = 2 * batch_size
@@ -576,6 +653,53 @@ class FpsLogQLoss(TorchLoss, config_name='fps_logq'):
         loss = self._loss_function(all_scores, positive_indices) / 2
 
         if self._output_prefix is not None:
+            inputs[self._output_prefix] = loss.cpu().item()
+
+        return loss
+
+
+class FullSoftmaxLoss(TorchLoss, config_name='full_softmax'):
+    """
+    Exact full-catalog softmax cross-entropy for the retrieval loss.
+
+    No negative sampling and hence no sampling bias: the denominator sums over
+    the whole item embedding table (padding and mask columns excluded). The
+    gold-standard anchor that in-batch + logQ approximates.
+    """
+    def __init__(
+        self,
+        queries_prefix,
+        table_prefix,
+        positive_ids_prefix,
+        output_prefix=None,
+    ):
+        super().__init__()
+        self._queries_prefix = queries_prefix
+        self._table_prefix = table_prefix
+        self._positive_ids_prefix = positive_ids_prefix
+        self._output_prefix = output_prefix
+
+    @classmethod
+    def create_from_config(cls, config, **kwargs):
+        return cls(
+            queries_prefix=config['queries_prefix'],
+            table_prefix=config['table_prefix'],
+            positive_ids_prefix=config['positive_ids_prefix'],
+            output_prefix=config.get('output_prefix'),
+        )
+
+    def forward(self, inputs):
+        queries = inputs[self._queries_prefix]       # (B, D)
+        table = inputs[self._table_prefix]           # (num_items + 2, D)
+        pos_ids = inputs[self._positive_ids_prefix]  # (B,)
+
+        all_scores = torch.mm(queries, table.T)  # (B, num_items + 2)
+        all_scores[:, 0] = -1e12   # padding column
+        all_scores[:, -1] = -1e12  # mask-token column
+
+        loss = torch.nn.functional.cross_entropy(all_scores, pos_ids)
+
+        if self._output_prefix:
             inputs[self._output_prefix] = loss.cpu().item()
 
         return loss
@@ -806,6 +930,10 @@ class MCLSRLogqInBatchLoss(TorchLoss, config_name='mclsr_logq_inbatch'):
         user_ids_prefix=None,
         expected_counts_role=None,
         expected_counts_max_len=None,
+        correct_positive=False,
+        variant='negatives_only',
+        mixed_uniform_negatives=0,
+        table_prefix=None,
     ):
         super().__init__()
         self._queries_prefix = queries_prefix
@@ -815,6 +943,35 @@ class MCLSRLogqInBatchLoss(TorchLoss, config_name='mclsr_logq_inbatch'):
         self._output_prefix = output_prefix
         self._logq_lambda = logq_lambda
         self._leave_own_out = leave_own_out
+        # mixed negative sampling (Yang et al. 2020): K uniform catalog items are
+        # appended to the in-batch pool (shared by the whole batch, as the in-batch
+        # positives are); the proposal becomes the mixture
+        #   Q_mix(v) = B/(B+K) * q(v) + K/(B+K) * 1/|V|
+        # and the correction uses log Q_mix. Needs the raw item table.
+        self._mixed_uniform_negatives = int(mixed_uniform_negatives)
+        self._table_prefix = table_prefix
+        if self._mixed_uniform_negatives > 0 and table_prefix is None:
+            raise ValueError('mixed_uniform_negatives requires table_prefix (the item table)')
+        if self._mixed_uniform_negatives > 0 and leave_own_out:
+            raise ValueError('mixed_uniform_negatives is not defined with leave_own_out')
+        # three forms of the correction:
+        #   negatives_only — the positive stays in the denominator uncorrected
+        #                    (Yang et al. 2020 / MNS convention; the study default);
+        #   standard       — Bengio & Senecal / Yi et al.: every denominator term,
+        #                    the positive included, is corrected (= correct_positive);
+        #   corrected      — Khrylchenko, Baikalov et al. (RecSys'25): the positive
+        #                    is not sampled, so it leaves the denominator; negatives
+        #                    use Q'(d) = q(d) / (1 - q(p)); the per-example loss is
+        #                    weighted by sg(1 - P_hat(p|u)), P_hat estimated from the
+        #                    same negatives with a 1/n mean in the denominator.
+        if correct_positive:
+            variant = 'standard'
+        if variant not in ('negatives_only', 'standard', 'corrected'):
+            raise ValueError(f'Unknown logQ variant `{variant}`')
+        self._variant = variant
+        self._correct_positive = variant == 'standard'
+        if variant != 'negatives_only' and self._leave_own_out:
+            raise ValueError('leave_own_out is only defined for the negatives_only variant')
         self._normalize_embeddings = normalize_embeddings
         self._temperature = temperature
 
@@ -845,7 +1002,74 @@ class MCLSRLogqInBatchLoss(TorchLoss, config_name='mclsr_logq_inbatch'):
             user_ids_prefix=config.get('user_ids_prefix'),
             expected_counts_role=config.get('expected_counts_role'),
             expected_counts_max_len=config.get('expected_counts_max_len'),
+            correct_positive=config.get('correct_positive', False),
+            variant=config.get('variant', 'negatives_only'),
+            mixed_uniform_negatives=config.get('mixed_uniform_negatives', 0),
+            table_prefix=config.get('table_prefix'),
         )
+
+    def _mns_forward(self, inputs, queries, pos_embs, pos_ids):
+        """In-batch pool + K shared uniform negatives; three variants over the same
+        (B, B+K) score matrix with the mixture proposal in the correction."""
+        table = inputs[self._table_prefix]  # (num_items + 2, D)
+        num_items = table.shape[0] - 2
+        batch_size = queries.size(0)
+        K = self._mixed_uniform_negatives
+        device = queries.device
+        uniform_ids = torch.randint(1, num_items + 1, (K,), device=device)
+        cand_ids = torch.cat((pos_ids, uniform_ids))                      # (B + K,)
+        cand_embs = torch.cat((pos_embs, table[uniform_ids]), dim=0)      # (B + K, D)
+        if self._normalize_embeddings:
+            queries = torch.nn.functional.normalize(queries, p=2, dim=-1, eps=1e-6)
+            cand_embs = torch.nn.functional.normalize(cand_embs, p=2, dim=-1, eps=1e-6)
+        scores = torch.mm(queries, cand_embs.T) / self._temperature       # (B, B + K)
+        q = self._prob_table[cand_ids]
+        share = batch_size / (batch_size + K)
+        q_mix = torch.clamp(share * q + (1.0 - share) / num_items, min=1e-10)
+        log_q = torch.log(q_mix)                                          # (B + K,)
+        rows = torch.arange(batch_size, device=device)
+        # masks: accidental hits (same item as the row's positive) and same-user rows
+        invalid = cand_ids.unsqueeze(0) == pos_ids.unsqueeze(1)           # (B, B + K)
+        invalid[rows, rows] = False
+        if self._user_ids_prefix is not None:
+            user_ids = inputs[self._user_ids_prefix].reshape(-1)
+            same_user = user_ids.unsqueeze(0) == user_ids.unsqueeze(1)
+            same_user.fill_diagonal_(False)
+            invalid[:, :batch_size] |= same_user
+        if self._variant == 'corrected':
+            invalid_c = invalid.clone(); invalid_c[rows, rows] = True
+            pos_mix = q_mix[:batch_size]
+            row_keep_log = torch.log(torch.clamp(1.0 - pos_mix, min=1e-10))
+            negatives = (scores - self._logq_lambda * log_q.unsqueeze(0)
+                         + self._logq_lambda * row_keep_log.unsqueeze(1)).masked_fill(invalid_c, -1e12)
+            positive = scores.diagonal()
+            log_sum_neg = torch.logsumexp(negatives, dim=1)
+            per_example = log_sum_neg - positive
+            num_valid = (~invalid_c).sum(dim=1).clamp(min=1).float()
+            log_p_hat = positive - torch.logaddexp(positive, log_sum_neg - torch.log(num_valid))
+            weight = (1.0 - torch.exp(log_p_hat)).detach()
+            return (weight * per_example).mean()
+        corrected = scores - self._logq_lambda * log_q.unsqueeze(0)
+        if self._variant == 'negatives_only':
+            corrected[rows, rows] += self._logq_lambda * log_q[:batch_size]  # positive uncorrected
+        corrected = corrected.masked_fill(invalid, -1e12)
+        return torch.nn.functional.cross_entropy(corrected, rows)
+
+    def _corrected_forward(self, all_scores, pos_ids, invalid_mask):
+        """RecSys'25 corrected logQ: L = -w * (s_pos - log sum_{neg} exp(s_neg - lambda log Q'(neg))),
+        Q'_i(j) = q(j) / (1 - q(p_i)), w = sg(1 - P_hat), P_hat = e^{s_pos} / (e^{s_pos} + mean_neg e^{corrected})."""
+        log_q = self._log_q_table[pos_ids]  # (B,)
+        row_keep_log = torch.log(torch.clamp(1.0 - self._prob_table[pos_ids], min=1e-10))  # log(1 - q(p_i))
+        negatives = (
+            all_scores - self._logq_lambda * log_q.unsqueeze(0) + self._logq_lambda * row_keep_log.unsqueeze(1)
+        ).masked_fill(invalid_mask, -1e12)  # (B, B), the diagonal is invalid: the positive leaves the denominator
+        positive = all_scores.diagonal()  # (B,), uncorrected (a constant shift does not change gradients)
+        log_sum_neg = torch.logsumexp(negatives, dim=1)  # (B,)
+        per_example = log_sum_neg - positive  # -log(e^{s_pos} / sum_neg e^{corrected})
+        num_valid = (~invalid_mask).sum(dim=1).clamp(min=1).float()
+        log_p_hat = positive - torch.logaddexp(positive, log_sum_neg - torch.log(num_valid))
+        weight = (1.0 - torch.exp(log_p_hat)).detach()
+        return (weight * per_example).mean()
 
     def forward(self, inputs):
         queries = inputs[self._queries_prefix]       # (B, D)
@@ -858,6 +1082,12 @@ class MCLSRLogqInBatchLoss(TorchLoss, config_name='mclsr_logq_inbatch'):
             self._prob_table = self._prob_table.to(queries.device)
 
         batch_size = queries.size(0)
+
+        if self._mixed_uniform_negatives > 0:
+            loss = self._mns_forward(inputs, queries, pos_embs, pos_ids)
+            if self._output_prefix:
+                inputs[self._output_prefix] = loss.cpu().item()
+            return loss
 
         if self._normalize_embeddings:
             queries = torch.nn.functional.normalize(
@@ -885,7 +1115,7 @@ class MCLSRLogqInBatchLoss(TorchLoss, config_name='mclsr_logq_inbatch'):
             )  # (B,) = log(1 - q(pos_i))
             all_scores = all_scores + self._logq_lambda * row_keep_log.unsqueeze(1)
             all_scores.diagonal().add_(self._logq_lambda * (log_q - row_keep_log))
-        else:
+        elif not self._correct_positive:
             all_scores.diagonal().add_(self._logq_lambda * log_q)
 
         # False negative masking: if pos_ids[i] == pos_ids[j] and i != j,
@@ -902,6 +1132,16 @@ class MCLSRLogqInBatchLoss(TorchLoss, config_name='mclsr_logq_inbatch'):
             same_user_mask = (user_ids.unsqueeze(0) == user_ids.unsqueeze(1))  # (B, B)
             same_user_mask.fill_diagonal_(False)
             all_scores = all_scores.masked_fill(same_user_mask, -1e12)
+
+        if self._variant == 'corrected':
+            invalid_mask = torch.eye(batch_size, dtype=torch.bool, device=queries.device) | false_neg_mask
+            if self._user_ids_prefix is not None:
+                invalid_mask = invalid_mask | same_user_mask
+            raw_scores = torch.mm(queries, pos_embs.T) / self._temperature
+            loss = self._corrected_forward(raw_scores, pos_ids, invalid_mask)
+            if self._output_prefix:
+                inputs[self._output_prefix] = loss.cpu().item()
+            return loss
 
         # Cross-entropy: positive is the diagonal (target index i for row i)
         labels = torch.arange(batch_size, device=queries.device)

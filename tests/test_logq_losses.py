@@ -7,6 +7,7 @@ of the intended math. Run directly:
 
 or via pytest.
 """
+import math
 import os
 import pickle
 import sys
@@ -104,6 +105,133 @@ def test_inbatch_matches_reference():
         assert torch.allclose(got, want, atol=1e-4), (lam, loo, got.item(), want.item())
     got.backward()
     assert torch.isfinite(q.grad).all()
+
+
+def test_inbatch_correct_positive_matches_reference():
+    """correct_positive=True: canonical form, the diagonal is corrected too."""
+    torch.manual_seed(11)
+    path = _counts_path()
+    q = torch.randn(B, D, requires_grad=True)
+    p_emb = torch.randn(B, D)
+    got = MCLSRLogqInBatchLoss(
+        queries_prefix='q', positive_prefix='p', positive_ids_prefix='pid',
+        path_to_item_counts=path, logq_lambda=1.0, user_ids_prefix='uid',
+        correct_positive=True,
+    )({'q': q, 'p': p_emb, 'pid': POS_IDS, 'uid': USER_IDS})
+    prob = _probs()
+    s = q.detach().double() @ p_emb.double().T
+    for i in range(B):
+        for j in range(B):
+            s[i, j] = s[i, j] - torch.log(prob[POS_IDS[j]])  # every column, diagonal included
+    for i in range(B):
+        for j in range(B):
+            if i != j and (POS_IDS[i] == POS_IDS[j] or USER_IDS[i] == USER_IDS[j]):
+                s[i, j] = -1e12
+    want = torch.nn.functional.cross_entropy(s.float(), torch.arange(B))
+    assert torch.allclose(got, want, atol=1e-4), (got.item(), want.item())
+    plain = MCLSRLogqInBatchLoss(
+        queries_prefix='q', positive_prefix='p', positive_ids_prefix='pid',
+        path_to_item_counts=path, logq_lambda=1.0, user_ids_prefix='uid',
+    )({'q': q, 'p': p_emb, 'pid': POS_IDS, 'uid': USER_IDS})
+    assert not torch.allclose(got, plain)  # the convention changes the loss value
+    got.backward()
+    assert torch.isfinite(q.grad).all()
+
+
+def test_inbatch_corrected_variant_matches_reference():
+    """variant='corrected' (Khrylchenko, Baikalov et al., RecSys'25): positive out of the
+    denominator, negatives corrected with Q'(j) = q(j)/(1-q(p_i)), loss weighted by
+    sg(1 - P_hat) with P_hat = e^{s_pos} / (e^{s_pos} + mean_neg e^{corrected})."""
+    torch.manual_seed(13)
+    path = _counts_path()
+    q = torch.randn(B, D, requires_grad=True)
+    p_emb = torch.randn(B, D)
+    got = MCLSRLogqInBatchLoss(
+        queries_prefix='q', positive_prefix='p', positive_ids_prefix='pid',
+        path_to_item_counts=path, logq_lambda=1.0, user_ids_prefix='uid',
+        variant='corrected',
+    )({'q': q, 'p': p_emb, 'pid': POS_IDS, 'uid': USER_IDS})
+    prob = _probs()
+    s = q.detach().double() @ p_emb.double().T
+    total = torch.zeros((), dtype=torch.float64)
+    for i in range(B):
+        negs = []
+        for j in range(B):
+            if j == i or POS_IDS[i] == POS_IDS[j] or USER_IDS[i] == USER_IDS[j]:
+                continue
+            q_prime = prob[POS_IDS[j]] / (1 - prob[POS_IDS[i]])
+            negs.append(s[i, j] - torch.log(q_prime))
+        negs = torch.stack(negs)
+        loss_i = torch.logsumexp(negs, 0) - s[i, i]
+        p_hat = torch.exp(s[i, i]) / (torch.exp(s[i, i]) + torch.exp(negs).mean())
+        total = total + (1 - p_hat) * loss_i
+    want = (total / B).float()
+    assert torch.allclose(got, want, atol=1e-4), (got.item(), want.item())
+    got.backward()
+    assert torch.isfinite(q.grad).all()
+
+
+def test_inbatch_mns_matches_reference():
+    """mixed_uniform_negatives=K: (B, B+K) candidates, mixture proposal in logQ."""
+    torch.manual_seed(14)
+    path = _counts_path()
+    n_items = len(COUNTS) - 2
+    table = torch.randn(n_items + 2, D)
+    q = torch.randn(B, D, requires_grad=True)
+    p_emb = torch.randn(B, D)
+    K = 5
+    loss_fn = MCLSRLogqInBatchLoss(
+        queries_prefix='q', positive_prefix='p', positive_ids_prefix='pid',
+        path_to_item_counts=path, logq_lambda=1.0, user_ids_prefix='uid',
+        mixed_uniform_negatives=K, table_prefix='t',
+    )
+    torch.manual_seed(99)
+    got = loss_fn({'q': q, 'p': p_emb, 'pid': POS_IDS, 'uid': USER_IDS, 't': table})
+    torch.manual_seed(99)
+    uniform_ids = torch.randint(1, n_items + 1, (K,))
+    prob = _probs()
+    cand_ids = torch.cat((POS_IDS, uniform_ids)); cand = torch.cat((p_emb, table[uniform_ids]), 0).double()
+    s = q.detach().double() @ cand.T
+    share = B / (B + K)
+    for i in range(B):
+        for j in range(B + K):
+            if j == i:
+                continue
+            qm = share * prob[cand_ids[j]] + (1 - share) / n_items
+            s[i, j] = s[i, j] - torch.log(qm)
+    for i in range(B):
+        for j in range(B + K):
+            if j != i and (cand_ids[j] == POS_IDS[i] or (j < B and USER_IDS[i] == USER_IDS[j])):
+                s[i, j] = -1e12
+    want = torch.nn.functional.cross_entropy(s.float(), torch.arange(B))
+    assert torch.allclose(got, want, atol=1e-4), (got.item(), want.item())
+    got.backward()
+    assert torch.isfinite(q.grad).all()
+
+
+def test_uncertainty_composite_weights():
+    """composite_uncertainty: learned terms start at the configured weight and the
+    total equals sum(exp(-s) L + s) + fixed terms; s receives a gradient."""
+    from irec.loss.base import UncertaintyCompositeLoss
+    torch.manual_seed(15)
+    path = _counts_path()
+    q = torch.randn(B, D, requires_grad=True); p_emb = torch.randn(B, D)
+    fst, snd = torch.randn(B, D), torch.randn(B, D)
+    inner = [
+        MCLSRLogqInBatchLoss(queries_prefix='q', positive_prefix='p', positive_ids_prefix='pid',
+                             path_to_item_counts=path, output_prefix='lp'),
+        FpsLogQLoss('f', 's', ids_prefix='i', path_to_counts=path, tau=0.5, output_prefix='lil'),
+    ]
+    comp = UncertaintyCompositeLoss(inner, weights=[1.0, 0.05], learn=[False, True], output_prefix='loss')
+    inputs = {'q': q, 'p': p_emb, 'pid': POS_IDS, 'f': fst, 's': snd, 'i': FPS_IDS}
+    total = comp(inputs)
+    lp = inner[0]({'q': q, 'p': p_emb, 'pid': POS_IDS}); lil = inner[1]({'f': fst, 's': snd, 'i': FPS_IDS})
+    s_init = -math.log(0.05)
+    want = lp + math.exp(-s_init) * lil + s_init
+    assert torch.allclose(total, want, atol=1e-5), (total.item(), want.item())
+    assert abs(inputs['weight/lil'] - 0.05) < 1e-6
+    total.backward()
+    assert comp._log_vars[0].grad is not None and torch.isfinite(comp._log_vars[0].grad)
 
 
 def test_fps_logq_matches_reference():
@@ -351,6 +479,84 @@ def test_fps_euclidean_matches_manual():
         {'f': big_f, 's': big_s},
     )
     assert torch.isfinite(got_big)
+
+
+def test_fps_logq_euclidean_matches_manual():
+    """similarity='euclidean' in fps_logq: lambda=0 without masking equals FpsLoss
+    (euclidean); lambda=1 matches the naive reference on -||a-b||^2/tau scores."""
+    from irec.loss.base import FpsLoss
+    torch.manual_seed(10)
+    path = _counts_path()
+    fst = torch.randn(B, D, requires_grad=True)
+    snd = torch.randn(B, D)
+    plain = FpsLoss('f', 's', tau=0.5, similarity='euclidean')({'f': fst, 's': snd})
+    zero = FpsLogQLoss(
+        'f', 's', ids_prefix='i', path_to_counts=path, tau=0.5, logq_lambda=0.0,
+        mask_false_negatives=False, similarity='euclidean',
+    )({'f': fst, 's': snd, 'i': FPS_IDS})
+    assert torch.allclose(plain, zero, atol=1e-5), (plain.item(), zero.item())
+
+    got = FpsLogQLoss(
+        'f', 's', ids_prefix='i', path_to_counts=path, tau=0.5, logq_lambda=1.0,
+        mask_false_negatives=True, similarity='euclidean',
+    )({'f': fst, 's': snd, 'i': FPS_IDS})
+    prob = _probs()
+    z = torch.cat((fst.detach(), snd), 0).double()
+    scores = -torch.cdist(z, z) ** 2 / 0.5
+    cid = torch.cat((FPS_IDS, FPS_IDS))
+    V = 2 * B
+    corr = torch.zeros(V, V, dtype=torch.float64)
+    for a in range(V):
+        for j in range(V):
+            qq = 1.0 - (1.0 - prob[cid[j]]) ** (B - 1)
+            corr[a, j] = torch.log(torch.clamp(qq, min=1e-10))
+    scores = scores - corr
+    pos = [(i + B) % V for i in range(V)]
+    for a in range(V):
+        scores[a, pos[a]] += corr[a, pos[a]]
+        for j in range(V):
+            if a == j or (cid[a] == cid[j] and j != pos[a]):
+                scores[a, j] = -1e12
+    want = torch.nn.functional.cross_entropy(scores.float(), torch.tensor(pos)) / 2
+    assert torch.allclose(got, want, atol=1e-4), (got.item(), want.item())
+    got.backward()
+    assert torch.isfinite(fst.grad).all()
+
+
+def test_fps_logq_centered_and_full_softmax():
+    """center_log_q: with a flat count table the centered correction vanishes,
+    so lambda=1 equals lambda=0; full_softmax: CE over the whole table with the
+    padding and mask columns excluded."""
+    from irec.loss.base import FullSoftmaxLoss
+    torch.manual_seed(12)
+    flat = tempfile.NamedTemporaryFile(suffix='.pkl', delete=False)
+    pickle.dump(np.full(len(COUNTS), 30.0, dtype=np.float32), flat); flat.close()
+    fst, snd = torch.randn(B, D), torch.randn(B, D)
+    ids = torch.arange(1, B + 1)  # no duplicates: masking plays no role
+    a = FpsLogQLoss('f', 's', ids_prefix='i', path_to_counts=flat.name, tau=0.5,
+                    logq_lambda=1.0, center_log_q=True)({'f': fst, 's': snd, 'i': ids})
+    b = FpsLogQLoss('f', 's', ids_prefix='i', path_to_counts=flat.name, tau=0.5,
+                    logq_lambda=0.0)({'f': fst, 's': snd, 'i': ids})
+    assert torch.allclose(a, b, atol=1e-6), (a.item(), b.item())
+    # with a skewed table the centered correction differs from the plain one
+    c = FpsLogQLoss('f', 's', ids_prefix='i', path_to_counts=_counts_path(), tau=0.5,
+                    logq_lambda=1.0, center_log_q=True)({'f': fst, 's': snd, 'i': FPS_IDS})
+    d = FpsLogQLoss('f', 's', ids_prefix='i', path_to_counts=_counts_path(), tau=0.5,
+                    logq_lambda=1.0)({'f': fst, 's': snd, 'i': FPS_IDS})
+    assert not torch.allclose(c, d)
+
+    n_items = 10
+    table = torch.randn(n_items + 2, D, requires_grad=True)
+    queries = torch.randn(B, D)
+    pos = torch.tensor([1, 2, 3, 4, 5, 6, 7, 10])
+    got = FullSoftmaxLoss('q', 't', 'p')({'q': queries, 't': table, 'p': pos})
+    scores = queries @ table.detach().T
+    scores[:, 0] = -1e12
+    scores[:, -1] = -1e12
+    want = torch.nn.functional.cross_entropy(scores, pos)
+    assert torch.allclose(got, want, atol=1e-5), (got.item(), want.item())
+    got.backward()
+    assert torch.all(table.grad[0] == 0) and torch.all(table.grad[-1] == 0)
 
 
 def test_matched_full_softmax_matches_manual():
