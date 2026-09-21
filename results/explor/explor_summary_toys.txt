@@ -1,0 +1,54 @@
+run                                                                                    validation/ndcg@20 best (step)               eval/ndcg@20 @ ckpt           eval/recall@1000 @ ckpt   last step
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+toys_mclsr_grid_01_orig_Toys_2026-08-17T02:18:40                                                       0.0358 @ 19456                    0.0357 @ 19456                    0.4088 @ 19456      115968
+toys_mclsr_grid_01_orig_Toys_2026-09-13T18:58:39                                                       0.0363 @ 23296                    0.0346 @ 23296                    0.4090 @ 23296       65295
+toys_mclsr_grid_01_orig_Toys_confirm_seed1_2026-09-15T01:17:44                                         0.0359 @ 20032                                 -                                 -       61214
+toys_mclsr_grid_01_orig_Toys_confirm_seed2_2026-09-15T02:23:45                                         0.0350 @ 15168                                 -                                 -       65295
+toys_mclsr_grid_01_orig_Toys_confirm_seed3_2026-09-15T03:33:43                                         0.0353 @ 19392                                 -                                 -       65295
+toys_mclsr_grid_02_logq_corrected_Toys_2026-09-13T17:21:28                                             0.0513 @ 30336                    0.0484 @ 30208                    0.4818 @ 30208       73457
+toys_mclsr_grid_02_logq_downstream_Toys_2026-08-17T06:48:06                                            0.0512 @ 31552                    0.0491 @ 31488                    0.4754 @ 31488      136448
+toys_mclsr_grid_02_logq_downstream_Toys_2026-09-13T20:22:22                                            0.0507 @ 35136                    0.0492 @ 35072                    0.4767 @ 35072       77538
+toys_mclsr_grid_02_logq_downstream_Toys_confirm_seed1_2026-09-14T18:42:18                              0.0506 @ 36608                                 -                                 -       77538
+toys_mclsr_grid_02_logq_downstream_Toys_confirm_seed2_2026-09-14T20:07:32                              0.0509 @ 37312                                 -                                 -       81619
+toys_mclsr_grid_02_logq_downstream_Toys_confirm_seed3_2026-09-14T21:37:53                              0.0504 @ 36736                                 -                                 -       81619
+toys_mclsr_grid_03_graph_Toys_2026-08-17T11:56:42                                                      0.0517 @ 43328                    0.0499 @ 43264                    0.5040 @ 43264       85700
+toys_mclsr_grid_03_graph_Toys_confirm_seed1_2026-09-14T23:07:46                                        0.0527 @ 36672                                 -                                 -       85700
+toys_mclsr_grid_03_graph_Toys_confirm_seed2_2026-09-15T01:14:23                                        0.0508 @ 44672                                 -                                 -       85700
+toys_mclsr_grid_03_graph_Toys_confirm_seed3_2026-09-15T03:19:52                                        0.0511 @ 43328                                 -                                 -       85700
+toys_mclsr_grid_03_graph_euclid_t1_2026-08-17T11:56:42                                                 0.0509 @ 36416                    0.0485 @ 36352                    0.4986 @ 36352       77538
+toys_mclsr_grid_03_graph_il00_Toys_confirm_seed1_2026-09-17T13:36:56                                   0.0400 @ 20288                                 -                                 -       65295
+toys_mclsr_grid_03_graph_l00_Toys_confirm_seed1_2026-09-14T06:26:45                                    0.0398 @ 33152                                 -                                 -       85700
+toys_mclsr_grid_03_graph_l00_Toys_confirm_seed1_2026-09-15T05:24:35                                    0.0398 @ 33152                                 -                                 -       85700
+toys_mclsr_grid_03_graph_l00_Toys_confirm_seed2_2026-09-15T07:30:05                                    0.0387 @ 28864                                 -                                 -       81619
+toys_mclsr_grid_03_graph_l00_Toys_confirm_seed3_2026-09-15T09:30:54                                    0.0388 @ 31872                                 -                                 -       81619
+toys_mclsr_grid_04_graph_logq_lil_Toys_2026-08-17T23:05:59                                             0.0508 @ 82432                    0.0485 @ 82432                    0.5031 @ 82432      126510
+toys_mclsr_grid_04_graph_logq_lil_Toys_confirm_seed1_2026-09-15T04:44:40                               0.0506 @ 84480                                 -                                 -      126510
+toys_mclsr_grid_04_graph_logq_lil_Toys_confirm_seed2_2026-09-15T07:36:15                               0.0507 @ 81984                                 -                                 -      130591
+toys_mclsr_grid_04_graph_logq_lil_Toys_confirm_seed3_2026-09-15T10:33:27                               0.0505 @ 88384                                 -                                 -      130591
+toys_mclsr_grid_04_graph_logq_lil_uniformq_Toys_confirm_seed1_2026-09-15T11:31:20                      0.0511 @ 89024                                 -                                 -      134672
+toys_mclsr_grid_05_full_baseline_Toys_2026-08-17T21:00:54                                              0.0518 @ 36480                    0.0488 @ 36352                    0.5059 @ 36352       77538
+toys_mclsr_grid_05_minus_ic_Toys_confirm_seed1_2026-09-17T08:26:33                                     0.0511 @ 36672                                 -                                 -       85700
+toys_mclsr_grid_05_minus_il_Toys_confirm_seed1_2026-09-17T11:07:05                                     0.0426 @ 24000                                 -                                 -       65295
+toys_mclsr_grid_05_minus_uc_Toys_confirm_seed1_2026-09-17T05:18:39                                     0.0514 @ 44160                                 -                                 -       85700
+toys_mclsr_grid_06_full_logq_ucic_Toys_2026-08-17T16:00:17                                             0.0512 @ 36480                    0.0478 @ 36352                    0.5014 @ 36352       77538
+toys_mclsr_grid_09_item_only_Toys_2026-08-17T15:56:34                                                  0.0420 @ 24320                    0.0407 @ 24320                    0.4533 @ 24320       65295
+toys_mclsr_grid_10_item_only_logq_Toys_2026-08-17T19:52:28                                             0.0391 @ 19584                    0.0390 @ 19456                    0.4308 @ 19456       61214
+toys_mclsr_grid_14_full_softmax_Toys_confirm_seed1_2026-09-15T14:40:15                                 0.0558 @ 73408                                 -                                 -      126510
+toys_mclsr_grid_14_full_softmax_Toys_confirm_seed2_2026-09-15T16:53:38                                 0.0549 @ 81344                                 -                                 -      122429
+toys_mclsr_grid_14_full_softmax_Toys_confirm_seed3_2026-09-15T18:59:40                                 0.0548 @ 72704                                 -                                 -      114267
+toys_mclsr_grid_17_user_only_full_matched_Toys_2026-08-17T02:18:40                                     0.0381 @ 27776                    0.0365 @ 27648                    0.4313 @ 27648       77822
+toys_mclsr_grid_18_item_only_full_matched_Toys_2026-08-17T06:48:06                                     0.0407 @ 28416                    0.0401 @ 28416                    0.4437 @ 28416       77312
+toys_sasrec_baseline_Toys_2026-09-13T06:33:18                                                          0.0281 @ 31296                    0.0239 @ 31232                    0.3850 @ 31232       36189
+toys_sasrec_inbatch_corrected_Toys_2026-09-13T17:11:36                                                  0.0481 @ 4672                     0.0429 @ 4608                                 -        9399
+toys_sasrec_inbatch_l00_Toys_2026-08-17T15:32:40                                                        0.0262 @ 1472                     0.0240 @ 1536                                 -        6579
+toys_sasrec_inbatch_l00_Toys_confirm_seed1_2026-09-15T15:56:47                                          0.0277 @ 1408                                 -                                 -       10339
+toys_sasrec_inbatch_l00_Toys_confirm_seed2_2026-09-15T16:08:38                                          0.0291 @ 1408                                 -                                 -        9869
+toys_sasrec_inbatch_l00_Toys_confirm_seed3_2026-09-15T16:20:20                                          0.0288 @ 1408                                 -                                 -        7519
+toys_sasrec_inbatch_l00_umask_Toys_2026-09-13T07:21:56                                                  0.0300 @ 1344                     0.0286 @ 1280                                 -        6109
+toys_sasrec_inbatch_logq_Toys_2026-08-17T15:44:04                                                       0.0499 @ 4672                     0.0428 @ 4608                                 -        9399
+toys_sasrec_inbatch_logq_Toys_confirm_seed1_2026-09-15T16:29:20                                         0.0501 @ 4224                                 -                                 -        8929
+toys_sasrec_inbatch_logq_Toys_confirm_seed2_2026-09-15T16:40:01                                         0.0501 @ 2816                                 -                                 -        7519
+toys_sasrec_inbatch_logq_Toys_confirm_seed3_2026-09-15T16:49:01                                         0.0491 @ 3264                                 -                                 -        7989
+toys_sasrec_inbatch_logq_umask_Toys_2026-09-13T07:28:11                                                 0.0461 @ 2304                     0.0430 @ 2304                                 -        7049
+toys_sasrec_ladder_l00_Toys_2026-09-13T07:35:25                                                        0.0285 @ 64768                    0.0283 @ 64768                                 -      106105
+toys_sasrec_ladder_logq_Toys_2026-09-13T09:22:50                                                       0.0445 @ 11904                    0.0405 @ 11776                                 -       53052

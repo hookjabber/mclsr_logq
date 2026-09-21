@@ -1,0 +1,79 @@
+run                                                                               validation/ndcg@20 best (step)               eval/ndcg@20 @ ckpt           eval/recall@1000 @ ckpt   last step
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+mclsr_grid_01_orig_Clothing_2026-06-14T04:02                                                                   -                                 -                                 -           -
+mclsr_grid_01_orig_Clothing_2026-06-14T04:07                                                        0.0042 @ 256                      0.0039 @ 256                      0.0731 @ 256         320
+mclsr_grid_01_orig_Clothing_2026-06-14T04:08                                                       0.0140 @ 2112                     0.0135 @ 2048                     0.2410 @ 2048        3072
+mclsr_grid_01_orig_Clothing_2026-06-14T04:22                                                       0.0156 @ 5312                     0.0170 @ 5376                     0.2532 @ 5376        6144
+mclsr_grid_01_orig_Clothing_2026-06-14T04:30                                                      0.0168 @ 10240                    0.0167 @ 10240                    0.2492 @ 10240       69183
+mclsr_grid_01_orig_e64_Clothing_2026-09-13T22:50:40                                                0.0177 @ 9600                     0.0163 @ 9600                     0.2421 @ 9600       69183
+mclsr_grid_01_orig_e64_Clothing_confirm_seed1_2026-09-14T18:49:49                                  0.0178 @ 8576                                 -                                 -       23551
+mclsr_grid_01_orig_e64_Clothing_confirm_seed2_2026-09-14T19:03:53                                  0.0170 @ 6464                                 -                                 -       22079
+mclsr_grid_01_orig_e64_Clothing_confirm_seed3_2026-09-14T19:16:55                                 0.0179 @ 10240                                 -                                 -       25023
+mclsr_grid_02_cosine_t01_Clothing_2026-07-11T15:14                                                 0.0210 @ 4416                     0.0228 @ 4352                     0.3223 @ 4352       64767
+mclsr_grid_02_cosine_t05_Clothing_2026-07-11T16:34                                                 0.0169 @ 1152                     0.0159 @ 1024                     0.2586 @ 1024       60351
+mclsr_grid_02_cosine_t1_Clothing_2026-07-11T22:57                                                  0.0161 @ 1088                     0.0152 @ 1024                     0.2579 @ 1024       60351
+mclsr_grid_02_logq_downstream_Clothing_2026-06-14T12:03                                            0.0245 @ 9536                     0.0230 @ 9472                     0.3113 @ 9472       69183
+mclsr_grid_02_logq_downstream_e64_Clothing_confirm_seed1_2026-09-14T19:31:51                      0.0237 @ 11136                                 -                                 -       26495
+mclsr_grid_02_logq_downstream_e64_Clothing_confirm_seed2_2026-09-14T19:47:19                      0.0247 @ 13184                                 -                                 -       27967
+mclsr_grid_02_logq_downstream_e64_Clothing_confirm_seed3_2026-09-14T20:04:13                      0.0263 @ 11520                                 -                                 -       26495
+mclsr_grid_02_logq_downstream_loo_Clothing_2026-07-07T22:07                                        0.0253 @ 9344                     0.0223 @ 9216                     0.3128 @ 9216       57984
+mclsr_grid_02_logq_targetq_2026-07-18T20:39:41                                                    0.0249 @ 12672                    0.0229 @ 12544                    0.3110 @ 12544       72127
+mclsr_grid_03_graph_Clothing_2026-06-14T13:40                                                     0.0276 @ 28288                    0.0272 @ 28160                    0.3593 @ 28160       88319
+mclsr_grid_03_graph_Clothing_2026-06-23T23:07                                                     0.0276 @ 28288                    0.0272 @ 28160                    0.3593 @ 28160       88319
+mclsr_grid_03_graph_bxb_Clothing_2026-07-11T15:14                                                 0.0283 @ 33088                    0.0251 @ 33024                    0.3499 @ 33024       92735
+mclsr_grid_03_graph_bxb_w05_Clothing_2026-07-14T23:08:26                                          0.0286 @ 26816                    0.0285 @ 26880                    0.3499 @ 26880       86847
+mclsr_grid_03_graph_cosine_Clothing_2026-07-08T21:03                                              0.0281 @ 13248                    0.0275 @ 13312                    0.3544 @ 13312       73599
+mclsr_grid_03_graph_cosine_t01_2026-07-19T14:25:03                                                0.0268 @ 16000                    0.0255 @ 15872                    0.3457 @ 15872       75071
+mclsr_grid_03_graph_cosine_t02_2026-07-19T07:46:57                                                0.0286 @ 15808                    0.0254 @ 15872                    0.3508 @ 15872       75071
+mclsr_grid_03_graph_cosine_t1_2026-07-19T16:22:03                                                  0.0278 @ 9216                     0.0254 @ 9216                     0.3324 @ 9216       69183
+mclsr_grid_03_graph_e64_Clothing_confirm_seed1_2026-09-14T20:20:35                                0.0290 @ 24960                                 -                                 -       42687
+mclsr_grid_03_graph_e64_Clothing_confirm_seed2_2026-09-14T20:54:28                                0.0286 @ 26176                                 -                                 -       41215
+mclsr_grid_03_graph_e64_Clothing_confirm_seed3_2026-09-14T21:26:37                                0.0273 @ 23424                                 -                                 -       44159
+mclsr_grid_03_graph_euclid_2026-07-19T07:34:17                                                       0.0014 @ 64                        0.0003 @ 0                        0.0415 @ 0         106
+mclsr_grid_03_graph_euclid_2026-07-19T12:09:53                                                    0.0275 @ 25024                    0.0246 @ 25088                    0.3554 @ 25088       85375
+mclsr_grid_03_graph_euclid_t1_2026-07-19T16:54:02                                                 0.0290 @ 25984                    0.0264 @ 25856                    0.3593 @ 25856       85375
+mclsr_grid_03_graph_paper_faithful_2026-07-18T20:30:39                                            0.0264 @ 13888                    0.0250 @ 13824                    0.3217 @ 13824       73599
+mclsr_grid_03_graph_paper_w05_Clothing_2026-07-15T04:09:06                                        0.0285 @ 27392                    0.0260 @ 27392                    0.3554 @ 27392       86847
+mclsr_grid_03_graph_shared_proj_Clothing_2026-07-07T23:16                                         0.0279 @ 26368                    0.0255 @ 26368                    0.3634 @ 26368       85375
+mclsr_grid_04_graph_logq_lil_Clothing_2026-06-14T16:13                                            0.0264 @ 56640                    0.0257 @ 56576                    0.3493 @ 56576      116287
+mclsr_grid_04_graph_logq_lil_Clothing_2026-06-15T23:01                                            0.0269 @ 59008                    0.0262 @ 58880                    0.3467 @ 58880      119231
+mclsr_grid_04_graph_logq_lil_centered_Clothing_2026-07-08T05:00                                   0.0286 @ 25856                    0.0259 @ 25856                    0.3562 @ 25856       85375
+mclsr_grid_04_graph_logq_lil_cosine_Clothing_2026-07-08T21:11                                     0.0295 @ 13184                    0.0267 @ 13056                    0.3533 @ 13056       72127
+mclsr_grid_04_graph_logq_lil_det_Clothing_2026-07-08T12:37                                        0.0259 @ 47744                    0.0243 @ 47616                    0.3418 @ 47616       48163
+mclsr_grid_04_graph_logq_lil_det_Clothing_2026-07-08T12:38                                        0.0266 @ 56576                    0.0246 @ 56576                    0.3448 @ 56576      116287
+mclsr_grid_04_graph_logq_lil_e64_Clothing_confirm_seed1_2026-09-14T22:01:45                       0.0267 @ 53312                                 -                                 -       79487
+mclsr_grid_04_graph_logq_lil_e64_Clothing_confirm_seed2_2026-09-14T22:59:51                       0.0268 @ 60096                                 -                                 -       75071
+mclsr_grid_04_graph_logq_lil_e64_Clothing_confirm_seed3_2026-09-14T23:56:24                       0.0258 @ 57600                                 -                                 -       75071
+mclsr_grid_04_graph_logq_lil_l00_Clothing_2026-06-16T01:51                                        0.0276 @ 28224                    0.0275 @ 28160                    0.3591 @ 28160       88319
+mclsr_grid_04_graph_logq_lil_l025_Clothing_2026-06-16T04:51                                       0.0270 @ 28288                    0.0250 @ 28160                    0.3534 @ 28160       88319
+mclsr_grid_04_graph_logq_lil_l05_Clothing_2026-06-16T08:16                                        0.0267 @ 41152                    0.0257 @ 41216                    0.3562 @ 41216      100095
+mclsr_grid_04_graph_logq_lil_loo_Clothing_2026-07-07T19:38                                        0.0255 @ 55424                    0.0242 @ 55296                    0.3442 @ 55296      114815
+mclsr_grid_04_graph_logq_lil_nomask_Clothing_2026-07-07T22:19                                     0.0269 @ 53056                    0.0251 @ 52992                    0.3472 @ 52992      113343
+mclsr_grid_04_graph_logq_lil_pos_Clothing_2026-07-08T17:04                                        0.0289 @ 25216                    0.0260 @ 25088                    0.3533 @ 25088       85375
+mclsr_grid_05_full_baseline_Clothing_2026-06-16T20:16                                             0.0273 @ 30848                    0.0266 @ 30720                    0.3549 @ 30720       89791
+mclsr_grid_05_full_baseline_g01_2026-07-19T00:57:22                                               0.0284 @ 24576                    0.0270 @ 24576                    0.3589 @ 24576       83903
+mclsr_grid_06_full_logq_ucic_Clothing_2026-06-17T00:00                                            0.0288 @ 26752                    0.0257 @ 26624                    0.3542 @ 26624       86847
+mclsr_grid_06_full_logq_ucic_Clothing_2026-06-30T00:02                                            0.0285 @ 26688                    0.0253 @ 26624                    0.3541 @ 26624       86847
+mclsr_grid_06_full_logq_ucic_g01_2026-07-19T04:33:16                                              0.0282 @ 29632                    0.0262 @ 29696                    0.3599 @ 29696       89791
+mclsr_grid_07_full_logq_all_Clothing_2026-06-17T13:45                                             0.0276 @ 65920                    0.0246 @ 65792                    0.3535 @ 65792      125119
+mclsr_grid_07_full_logq_all_Clothing_2026-06-30T03:32                                              0.0132 @ 8896                     0.0129 @ 8704                     0.2754 @ 8704        8898
+mclsr_grid_09_item_only_Clothing_2026-07-04T20:26                                                  0.0244 @ 8064                     0.0216 @ 7936                     0.3132 @ 7936       67711
+mclsr_grid_09_item_only_Clothing_2026-07-18T01:23:32                                               0.0235 @ 6976                     0.0221 @ 6912                     0.3127 @ 6912       66239
+mclsr_grid_09_item_only_cosine_Clothing_2026-07-11T17:24                                           0.0235 @ 8000                     0.0220 @ 7936                     0.3162 @ 7936       67711
+mclsr_grid_10_item_only_logq_Clothing_2026-07-05T00:47                                             0.0243 @ 8960                     0.0231 @ 8960                     0.3171 @ 8960       69183
+mclsr_grid_10_item_only_logq_Clothing_2026-07-18T01:23:32                                          0.0239 @ 8384                     0.0213 @ 8448                     0.3154 @ 8448       67711
+mclsr_grid_10_item_only_logq_cosine_Clothing_2026-07-11T19:30                                      0.0243 @ 9152                     0.0220 @ 9216                     0.3182 @ 9216       69183
+mclsr_grid_10_item_only_logq_ctxq_2026-07-18T22:15:56                                              0.0239 @ 9664                     0.0229 @ 9728                     0.3183 @ 9728       69183
+mclsr_grid_10_item_only_logq_ctxq_v2_2026-07-20T01:00:08                                           0.0246 @ 9792                     0.0233 @ 9728                     0.3226 @ 9728       69183
+mclsr_grid_11_user_only_Clothing_2026-07-08T01:00                                                  0.0243 @ 9664                     0.0211 @ 9728                     0.3206 @ 9728       69183
+mclsr_grid_12_user_only_logq_Clothing_2026-07-08T02:53                                             0.0242 @ 9024                     0.0224 @ 8960                     0.3135 @ 8960       69183
+mclsr_grid_13_user_only_logq_nomask_Clothing_2026-07-08T04:46                                      0.0230 @ 5632                     0.0216 @ 5632                     0.3036 @ 5632       64767
+mclsr_grid_14_full_softmax_Clothing_2026-07-08T07:06                                              0.0246 @ 14912                    0.0222 @ 14848                    0.2987 @ 14848       75071
+mclsr_grid_14_full_softmax_e64_Clothing_confirm_seed1_2026-09-15T13:30:37                         0.0242 @ 14592                                 -                                 -       29439
+mclsr_grid_14_full_softmax_e64_Clothing_confirm_seed2_2026-09-15T13:48:24                         0.0247 @ 14272                                 -                                 -       29439
+mclsr_grid_14_full_softmax_e64_Clothing_confirm_seed3_2026-09-15T14:06:12                         0.0249 @ 13824                                 -                                 -       29439
+mclsr_grid_15_user_only_full_Clothing_2026-07-11T18:51                                            0.0236 @ 10944                    0.0212 @ 11008                    0.3134 @ 11008       70655
+mclsr_grid_16_item_only_full_Clothing_2026-07-11T20:48                                             0.0239 @ 9728                     0.0224 @ 9728                     0.3211 @ 9728       69183
+mclsr_grid_17_user_only_full_matched_Clothing_2026-07-15T04:16:19                                 0.0232 @ 10176                    0.0210 @ 10240                    0.3147 @ 10240       69183
+mclsr_grid_18_item_only_full_matched_Clothing_2026-07-15T06:20:58                                  0.0248 @ 9856                     0.0226 @ 9728                     0.3302 @ 9728       69183
+mclsr_grid_18_item_only_full_matched_Clothing_2026-07-16T00:10:10                                  0.0245 @ 8960                     0.0235 @ 8960                     0.3249 @ 8960       69183
