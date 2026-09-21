@@ -1,10 +1,10 @@
 #!/bin/bash
-# usage: bash run_queue_seeds.sh <queue-name> <config-dir> <seeds, comma-separated> <arm> [<arm> ...]
+# usage: bash scripts/run_queue_seeds.sh <queue-name> <config-dir> <seeds, comma-separated> <arm> [<arm> ...]
 # multi-seed runs through the confirmatory runner: test callback stripped, test opened once per
 # validation-selected checkpoint (ndcg@20 and recall@1000), JSON report with sha256 of everything.
 NAME=$1; DIR=$2; SEEDS=$3; shift 3
-cd /mnt/tank/scratch/pkrasnov/mclsr_logq
-source .venv/bin/activate
+cd "$(dirname "$0")/.."  # repository root
+[ -f .venv/bin/activate ] && source .venv/bin/activate
 mkdir -p results/confirm results/logs
 for cfg in "$@"; do
   for seed in ${SEEDS//,/ }; do

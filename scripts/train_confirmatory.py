@@ -18,7 +18,7 @@ Differences from the exploratory `train` entrypoint:
 Usage (one seed per invocation; loop seeds from the shell):
     python scripts/train_confirmatory.py --params configs/train/toys/03_graph.json \
         --seed 1 --select validation/ndcg@20 validation/recall@1000 \
-        --output results/toys_03_seed1.json
+        --output results/confirm/toys_03_graph_seed1.json
 """
 import argparse
 import copy
