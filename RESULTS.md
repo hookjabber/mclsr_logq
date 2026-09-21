@@ -16,8 +16,9 @@ the config, count tables and checkpoints (`results/confirm/*.json`). Seeds 1, 2,
 tables show the mean, per-seed values are in `RUN_INDEX.md`. The CDs & Vinyl runs followed a plan written down before the first run (7 arms,
 seeds 1–3, hypotheses and decision rules). Seed-to-seed std: 0.0004–0.0019 ndcg@20, 0.001–0.008
 recall@1000; single-run differences below ~0.002 ndcg@20 are not interpreted.
-Two runs of one seed with deterministic flags give bit-identical weights; without
-the flags the same seed drifts by ±0.0005.
+Two runs of one seed with deterministic flags give bit-identical weights for the
+no-graph configurations; graph configurations drift by ~1e-6 in the loss even with the
+flags (sparse CUDA kernels), and without the flags the same seed drifts by ±0.0005 ndcg@20.
 
 ### A.1 Headline table (test ndcg@20 / recall@1000, mean of 3 seeds)
 
@@ -65,7 +66,7 @@ the flags the same seed drifts by ±0.0005.
 
 | question | arms | test ndcg@20 / recall@1000 | verdict |
 |---|---|---|---|
-| Is the L_IL harm a margin effect? | 04 with a **constant** user-count table (pure margin, no popularity information) | 0.0524 / 0.528 vs 03 0.0567 / 0.540 vs 04 0.0508 / 0.529 | yes: the constant reproduces ¾ of the harm on every seed and the late peak; λ_IL = 0.1 / 0.3 / 1 → 0.0565 / 0.0544 / 0.0508 † (monotone dose) |
+| Is the L_IL harm a margin effect? | 04 with a **constant** user-count table (pure margin, no popularity information) | 0.0524 / 0.528 vs 03 0.0567 / 0.540 vs 04 0.0508 / 0.529 | yes: the constant reproduces ¾ of the harm on every seed and the late peak; λ_IL = 0.1 / 0.3 / 1 → 0.0565 / 0.0544 / 0.0508 † (monotone dose); on CDs & Vinyl (3 seeds) constant q = real q (0.0489 = 0.0489) where the harm itself is small (−0.0008) |
 | Is L_IL needed at all? | β = 0 | 0.0500 / 0.498 | yes: worse than the full model (−0.0067 / −0.042, every seed) and even than the model without the graph — the graph's tail gain reaches I_s only through L_IL (inference uses I_s) |
 | Weight of L_IL | β = 0.25 † / 0.5 / 1 / 2 † | 0.0569 / 0.0580 / 0.0567 / 0.0532 | plateau 0.25–1 (β = 0.5: +0.0014 on validation on every seed, +0.0013 test, tail equal); β = 2 hurts; the paper's β = 1 is kept |
 | Interest mix α | 0.25 / 0.5 / 0.75 / 0.9 † | 0.0543 / 0.0567 / 0.0579 / 0.0585 | plateau 0.5–0.9 on validation; α = 0.5 kept |
@@ -78,6 +79,20 @@ the flags the same seed drifts by ±0.0005.
 | Remedies for L_IL † | centred log q; cosine τ 0.1/0.5/1; euclid τ 0.5/1/2 (± logQ) | 0.0564; 0.0569/0.0577/0.0547; 0.0589/0.0574/0.0599 (logQ: 0.0563/0.0550/0.0540) | remove the harm, never beat the uncorrected base; euclid + logQ worse at every τ |
 | Learned loss weights † | Kendall et al. uncertainty weighting | 0.0437 | weights drift to the likelihood optimum, not the ranking one |
 | Implementation details † | shared L_IL projector; paper-faithful (shared projector + cosine + paper scheme) | 0.0565; 0.0569 | no difference to 03 |
+
+### A.3 Component ablation (Beauty, 3 seeds; logQ on L_P throughout)
+
+| arm | user–item graph | L_IL | user–user graph (L_UC) | item–item graph (L_IC) | test ndcg@20 | recall@1000 |
+|---|---|---|---|---|---|---|
+| 02 no graphs | – | – | – | – | 0.0556 | 0.510 |
+| 03 | + | + | – | – | 0.0567 | 0.540 |
+| 05 full model of the paper | + | + | + | + | 0.0573 | 0.539 |
+| 05 − user–user | + | + | – | + | 0.0565 | 0.535 |
+| 05 − item–item | + | + | + | – | 0.0570 | 0.541 |
+| 05 − L_IL | + | – | + | + | 0.0516 | 0.490 |
+| 03 − L_IL (β = 0) | + | – | – | – | 0.0500 | 0.498 |
+
+The user–user and item–item graphs and their feature-level contrastive losses contribute nothing (every paired difference within noise), on CDs & Vinyl as well (3 seeds: full model 0.0494 / 0.506, minus user–user 0.0494 / 0.505, minus item–item 0.0488 / 0.505, vs 0.0497 / 0.508 without them). Removing the alignment loss L_IL costs −0.0057 / −0.049 on every seed even with both feature graphs in place (CDs & Vinyl, 3 seeds: 0.0404 / 0.449, and 0.0390 / 0.445 for the graph alone — below the model without any graph): the only working component of the graph branch is the user–item graph aligned to the sequential interest through L_IL, and its contribution is tail recall.
 
 Independent replication: `scripts/indep_check_beauty.py` (no `irec` code — own data
 loading, encoder, loss and metrics) gives 0.0411 / 0.408 → 0.0619 / 0.524 on Beauty
