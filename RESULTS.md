@@ -1,4 +1,90 @@
-# Experiment results: logQ correction study on MCLSR (Amazon Clothing)
+# Experiment results: logQ correction study on MCLSR
+
+Two parts. **Part A** (September 2026) is the multi-seed study across three datasets
+under one protocol; it supersedes the single-seed numbers below wherever they overlap.
+**Part B** is the original single-seed exploratory study on Amazon Clothing (July–August
+2026), kept as the record of how the hypotheses were formed. Every run with its numbers: `RUN_INDEX.md`.
+
+## Part A. Multi-seed results across three datasets (September 2026)
+
+**Protocol.** `scripts/train_confirmatory.py`: the test callback is removed before
+training; one checkpoint is kept per validation metric (ndcg@20 and recall@1000) and
+written atomically on every improvement; the test set is evaluated **once** per
+arm × seed × metric on the selected checkpoint; shared no-progress patience of 10
+epochs, hard cap of 250 000 steps; validation every 64 steps. Reports carry sha256 of
+the config, count tables and checkpoints (`results/confirm/*.json`). Seeds 1, 2, 3;
+tables show the mean, per-seed values are in `RUN_INDEX.md`. The CDs & Vinyl runs followed a plan written down before the first run (7 arms,
+seeds 1–3, hypotheses and decision rules). Seed-to-seed std: 0.0004–0.0019 ndcg@20, 0.001–0.008
+recall@1000; single-run differences below ~0.002 ndcg@20 are not interpreted.
+Two runs of one seed with deterministic flags give bit-identical weights; without
+the flags the same seed drifts by ±0.0005.
+
+### A.1 Headline table (test ndcg@20 / recall@1000, mean of 3 seeds)
+
+![logQ on the retrieval loss across three datasets](assets/headline_three_datasets.png)
+
+
+| arm | Clothing (39k users / 23k items, Gini 0.42) | Beauty (22k / 12k, Gini 0.50) | CDs & Vinyl "Toys" (75k / 64k, Gini 0.54) |
+|---|---|---|---|
+| MostPop (no training) | — | 0.0118 / 0.317 | — |
+| 01 MCLSR w/o graph, in-batch, λ=0 | 0.0152 / 0.252 | 0.0386 / 0.436 | 0.0349 / 0.413 |
+| **02 + logQ on L_P** | **0.0226 / 0.314** | **0.0556 / 0.510** | **0.0497 / 0.481** |
+| 14 exact full softmax (no sampling) | 0.0219 / 0.311 | 0.0577 / 0.510 | 0.0534 / 0.494 |
+| 03 graph + L_IL (full model, logQ on L_P) | 0.0261 / 0.358 | 0.0567 / 0.540 | 0.0497 / 0.508 |
+| 04 graph, logQ also on L_IL | 0.0249 / 0.344 | 0.0508 / 0.529 | 0.0489 / 0.505 |
+| graph, no correction (λ=0) | — | 0.0393 / 0.474 | 0.0376 / 0.443 |
+| SASRec in-batch, λ=0 | 0.0085 / 0.211 | 0.0478 / 0.425 | 0.0268 / 0.378 |
+| SASRec in-batch, λ=1 | 0.0178 / 0.300 | 0.0631 / 0.500 | 0.0438 / 0.464 |
+
+- **Retrieval correction (01→02):** +48 % / +44 % / +42 % ndcg@20 and +25 % / +17 % / +16 %
+  recall@1000; the paired per-seed difference is positive on every seed of every dataset
+  (Beauty user-level paired bootstrap CI [+0.0135, +0.0219]). Same on SASRec:
+  +108 % / +32 % / +63 %.
+- **Exact softmax anchor:** in-batch + logQ recovers (02−01)/(14−01) = ≥100 % (Clothing,
+  the two are equal), 89 % (Beauty), 80 % (Toys) of the exact-softmax gain; the remainder
+  (+0.002 Beauty, +0.004 Toys) is positive on every seed and grows with the catalogue.
+  Exact softmax costs nothing extra at these catalogue sizes (23.7 steps/s for both on
+  Beauty), so this is a statement about accuracy, not speed.
+![Graph × logQ factorial](assets/factorial_graph_logq.png)
+
+- **Graph × logQ factorial (Beauty, Toys):** the correction adds +0.0169 / +0.0174 (Beauty)
+  and +0.0148 / +0.0122 (Toys) without / with the graph — additive; the graph alone does
+  not fix the popularity bias (+0.0007 / +0.0027 ndcg@20) and adds tail recall only
+  (+0.03…+0.04).
+- **Correction on the alignment loss L_IL (03→04) hurts, dataset-dependently:**
+  −0.0059 / −0.011 on Beauty (every seed, CI [−0.0083, −0.0020]), −0.0012 / −0.014 on
+  Clothing (tail on every seed), −0.0008 / −0.002 on Toys (sign on 3/3 seeds, size within
+  noise). Peaks arrive ~2× later (Beauty epoch 47–49 vs 19–25).
+
+### A.2 Mechanism and sensitivity (Beauty, 3 seeds unless marked †)
+
+![L_IL: the harm is a margin; β sensitivity](assets/lil_mechanism.png)
+
+![Recall gain by popularity decile](assets/deciles_logq.png)
+
+
+| question | arms | test ndcg@20 / recall@1000 | verdict |
+|---|---|---|---|
+| Is the L_IL harm a margin effect? | 04 with a **constant** user-count table (pure margin, no popularity information) | 0.0524 / 0.528 vs 03 0.0567 / 0.540 vs 04 0.0508 / 0.529 | yes: the constant reproduces ¾ of the harm on every seed and the late peak; λ_IL = 0.1 / 0.3 / 1 → 0.0565 / 0.0544 / 0.0508 † (monotone dose) |
+| Is L_IL needed at all? | β = 0 | 0.0500 / 0.498 | yes: worse than the full model (−0.0067 / −0.042, every seed) and even than the model without the graph — the graph's tail gain reaches I_s only through L_IL (inference uses I_s) |
+| Weight of L_IL | β = 0.25 † / 0.5 / 1 / 2 † | 0.0569 / 0.0580 / 0.0567 / 0.0532 | plateau 0.25–1 (β = 0.5: +0.0014 on validation on every seed, +0.0013 test, tail equal); β = 2 hurts; the paper's β = 1 is kept |
+| Interest mix α | 0.25 / 0.5 / 0.75 / 0.9 † | 0.0543 / 0.0567 / 0.0579 / 0.0585 | plateau 0.5–0.9 on validation; α = 0.5 kept |
+| Feature-level weight γ | 0.05 / 0.1 / 0.2 † / 0.5 | 0.0563 / 0.0565 / 0.0557 / 0.0563 | no effect (γ = 0.5 below base on validation) |
+| Form of the correction | negatives-only (ours) / standard (Yi et al.) / corrected (Khrylchenko, Baikalov et al., RecSys'25) | 0.0556 / 0.0558 / 0.0546; SASRec 0.0631 / — / 0.0632 | equal within noise, both encoders |
+| Mixed negatives (MNS, +128 uniform) † | three forms | 0.0572 / 0.0546 / 0.0560 | = in-batch + logQ |
+| Explicit negatives † | uniform 127 / 1280; popular 127; popular + logQ | 0.0491 / 0.0537; 0.0407; 0.0497 | all below in-batch + logQ (tail −0.02) |
+| Batch size † | 128 / 256 / 512 | 01: 0.0380 / 0.0374 / 0.0390; 02: 0.0555 / 0.0554 / 0.0559 | the gain (~45 %) does not depend on the number of negatives |
+| λ on L_P | 0.5 vs 1 | 0.0513 / 0.487 vs 0.0556 / 0.510 | λ = 1 dominates on every seed; λ < 1 only reshapes the popularity profile (tail decile +0.03…+0.05, head −0.07…−0.08, significant on every seed) |
+| Remedies for L_IL † | centred log q; cosine τ 0.1/0.5/1; euclid τ 0.5/1/2 (± logQ) | 0.0564; 0.0569/0.0577/0.0547; 0.0589/0.0574/0.0599 (logQ: 0.0563/0.0550/0.0540) | remove the harm, never beat the uncorrected base; euclid + logQ worse at every τ |
+| Learned loss weights † | Kendall et al. uncertainty weighting | 0.0437 | weights drift to the likelihood optimum, not the ranking one |
+| Implementation details † | shared L_IL projector; paper-faithful (shared projector + cosine + paper scheme) | 0.0565; 0.0569 | no difference to 03 |
+
+Independent replication: `scripts/indep_check_beauty.py` (no `irec` code — own data
+loading, encoder, loss and metrics) gives 0.0411 / 0.408 → 0.0619 / 0.524 on Beauty
+(+51 % / +29 %). Data checks (`scripts/check_split_leakage.py`): train/valid/test users
+are disjoint; count tables and graphs are reconstructed exactly from the train files.
+
+## Part B. Clothing exploratory study (July–August 2026, single seed)
 
 **Protocol.** The checkpoint is selected by the *validation* metric and the test
 metric is taken from the **nearest logged test evaluation to that step** (test is

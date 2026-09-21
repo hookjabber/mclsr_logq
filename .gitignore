@@ -13,3 +13,7 @@ runs/
 tensorboard_logs/
 new_tensorboard_logs/
 docs/
+results/*
+!results/confirm/
+!results/prereg/
+!results/deciles/
