@@ -7,6 +7,7 @@ of the intended math. Run directly:
 
 or via pytest.
 """
+
 import math
 import os
 import pickle
@@ -18,7 +19,7 @@ import torch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from irec.loss.base import (  # noqa: E402
+from irec.loss import (  # noqa: E402
     ContrastiveFullSoftmaxLoss,
     FpsLogQLoss,
     MCLSRLogqInBatchLoss,
@@ -27,7 +28,7 @@ from irec.loss.base import (  # noqa: E402
 B = 8
 D = 16
 COUNTS = [1.0, 500.0, 30.0, 30.0, 30.0, 30.0, 30.0, 30.0, 30.0, 5.0]
-POS_IDS = torch.tensor([1, 1, 2, 3, 4, 5, 6, 7])           # duplicate item id=1
+POS_IDS = torch.tensor([1, 1, 2, 3, 4, 5, 6, 7])  # duplicate item id=1
 USER_IDS = torch.tensor([10, 11, 12, 12, 13, 14, 15, 16])  # duplicate user id=12
 FPS_IDS = torch.tensor([1, 1, 2, 3, 4, 5, 6, 7])
 
@@ -96,9 +97,13 @@ def test_inbatch_matches_reference():
     p_emb = torch.randn(B, D)
     for lam, loo in [(1.0, False), (1.0, True), (0.0, False), (0.0, True)]:
         loss = MCLSRLogqInBatchLoss(
-            queries_prefix='q', positive_prefix='p', positive_ids_prefix='pid',
-            path_to_item_counts=path, logq_lambda=lam,
-            leave_own_out=loo, user_ids_prefix='uid',
+            queries_prefix='q',
+            positive_prefix='p',
+            positive_ids_prefix='pid',
+            path_to_item_counts=path,
+            logq_lambda=lam,
+            leave_own_out=loo,
+            user_ids_prefix='uid',
         )
         got = loss({'q': q, 'p': p_emb, 'pid': POS_IDS, 'uid': USER_IDS})
         want = reference_inbatch(q, p_emb, lam, loo)
@@ -114,8 +119,12 @@ def test_inbatch_correct_positive_matches_reference():
     q = torch.randn(B, D, requires_grad=True)
     p_emb = torch.randn(B, D)
     got = MCLSRLogqInBatchLoss(
-        queries_prefix='q', positive_prefix='p', positive_ids_prefix='pid',
-        path_to_item_counts=path, logq_lambda=1.0, user_ids_prefix='uid',
+        queries_prefix='q',
+        positive_prefix='p',
+        positive_ids_prefix='pid',
+        path_to_item_counts=path,
+        logq_lambda=1.0,
+        user_ids_prefix='uid',
         correct_positive=True,
     )({'q': q, 'p': p_emb, 'pid': POS_IDS, 'uid': USER_IDS})
     prob = _probs()
@@ -130,8 +139,12 @@ def test_inbatch_correct_positive_matches_reference():
     want = torch.nn.functional.cross_entropy(s.float(), torch.arange(B))
     assert torch.allclose(got, want, atol=1e-4), (got.item(), want.item())
     plain = MCLSRLogqInBatchLoss(
-        queries_prefix='q', positive_prefix='p', positive_ids_prefix='pid',
-        path_to_item_counts=path, logq_lambda=1.0, user_ids_prefix='uid',
+        queries_prefix='q',
+        positive_prefix='p',
+        positive_ids_prefix='pid',
+        path_to_item_counts=path,
+        logq_lambda=1.0,
+        user_ids_prefix='uid',
     )({'q': q, 'p': p_emb, 'pid': POS_IDS, 'uid': USER_IDS})
     assert not torch.allclose(got, plain)  # the convention changes the loss value
     got.backward()
@@ -147,8 +160,12 @@ def test_inbatch_corrected_variant_matches_reference():
     q = torch.randn(B, D, requires_grad=True)
     p_emb = torch.randn(B, D)
     got = MCLSRLogqInBatchLoss(
-        queries_prefix='q', positive_prefix='p', positive_ids_prefix='pid',
-        path_to_item_counts=path, logq_lambda=1.0, user_ids_prefix='uid',
+        queries_prefix='q',
+        positive_prefix='p',
+        positive_ids_prefix='pid',
+        path_to_item_counts=path,
+        logq_lambda=1.0,
+        user_ids_prefix='uid',
         variant='corrected',
     )({'q': q, 'p': p_emb, 'pid': POS_IDS, 'uid': USER_IDS})
     prob = _probs()
@@ -181,16 +198,22 @@ def test_inbatch_mns_matches_reference():
     p_emb = torch.randn(B, D)
     K = 5
     loss_fn = MCLSRLogqInBatchLoss(
-        queries_prefix='q', positive_prefix='p', positive_ids_prefix='pid',
-        path_to_item_counts=path, logq_lambda=1.0, user_ids_prefix='uid',
-        mixed_uniform_negatives=K, table_prefix='t',
+        queries_prefix='q',
+        positive_prefix='p',
+        positive_ids_prefix='pid',
+        path_to_item_counts=path,
+        logq_lambda=1.0,
+        user_ids_prefix='uid',
+        mixed_uniform_negatives=K,
+        table_prefix='t',
     )
     torch.manual_seed(99)
     got = loss_fn({'q': q, 'p': p_emb, 'pid': POS_IDS, 'uid': USER_IDS, 't': table})
     torch.manual_seed(99)
     uniform_ids = torch.randint(1, n_items + 1, (K,))
     prob = _probs()
-    cand_ids = torch.cat((POS_IDS, uniform_ids)); cand = torch.cat((p_emb, table[uniform_ids]), 0).double()
+    cand_ids = torch.cat((POS_IDS, uniform_ids))
+    cand = torch.cat((p_emb, table[uniform_ids]), 0).double()
     s = q.detach().double() @ cand.T
     share = B / (B + K)
     for i in range(B):
@@ -212,20 +235,28 @@ def test_inbatch_mns_matches_reference():
 def test_uncertainty_composite_weights():
     """composite_uncertainty: learned terms start at the configured weight and the
     total equals sum(exp(-s) L + s) + fixed terms; s receives a gradient."""
-    from irec.loss.base import UncertaintyCompositeLoss
+    from irec.loss import UncertaintyCompositeLoss
+
     torch.manual_seed(15)
     path = _counts_path()
-    q = torch.randn(B, D, requires_grad=True); p_emb = torch.randn(B, D)
+    q = torch.randn(B, D, requires_grad=True)
+    p_emb = torch.randn(B, D)
     fst, snd = torch.randn(B, D), torch.randn(B, D)
     inner = [
-        MCLSRLogqInBatchLoss(queries_prefix='q', positive_prefix='p', positive_ids_prefix='pid',
-                             path_to_item_counts=path, output_prefix='lp'),
+        MCLSRLogqInBatchLoss(
+            queries_prefix='q',
+            positive_prefix='p',
+            positive_ids_prefix='pid',
+            path_to_item_counts=path,
+            output_prefix='lp',
+        ),
         FpsLogQLoss('f', 's', ids_prefix='i', path_to_counts=path, tau=0.5, output_prefix='lil'),
     ]
     comp = UncertaintyCompositeLoss(inner, weights=[1.0, 0.05], learn=[False, True], output_prefix='loss')
     inputs = {'q': q, 'p': p_emb, 'pid': POS_IDS, 'f': fst, 's': snd, 'i': FPS_IDS}
     total = comp(inputs)
-    lp = inner[0]({'q': q, 'p': p_emb, 'pid': POS_IDS}); lil = inner[1]({'f': fst, 's': snd, 'i': FPS_IDS})
+    lp = inner[0]({'q': q, 'p': p_emb, 'pid': POS_IDS})
+    lil = inner[1]({'f': fst, 's': snd, 'i': FPS_IDS})
     s_init = -math.log(0.05)
     want = lp + math.exp(-s_init) * lil + s_init
     assert torch.allclose(total, want, atol=1e-5), (total.item(), want.item())
@@ -240,17 +271,22 @@ def test_fps_logq_matches_reference():
     fst = torch.randn(B, D, requires_grad=True)
     snd = torch.randn(B, D)
     cases = [
-        (1.0, True, False),   # plain vector correction, masked
-        (1.0, True, True),    # leave-own-out (q')
+        (1.0, True, False),  # plain vector correction, masked
+        (1.0, True, True),  # leave-own-out (q')
         (1.0, False, False),  # no masking, plain q
-        (0.0, True, False),   # lambda=0
+        (0.0, True, False),  # lambda=0
     ]
     for lam, mask_fn, loo in cases:
         loss = FpsLogQLoss(
-            fst_embeddings_prefix='f', snd_embeddings_prefix='s', ids_prefix='i',
-            path_to_counts=path, tau=0.5, logq_lambda=lam,
+            fst_embeddings_prefix='f',
+            snd_embeddings_prefix='s',
+            ids_prefix='i',
+            path_to_counts=path,
+            tau=0.5,
+            logq_lambda=lam,
             logq_probability_mode='inbatch_negative',
-            mask_false_negatives=mask_fn, leave_own_out=loo,
+            mask_false_negatives=mask_fn,
+            leave_own_out=loo,
         )
         got = loss({'f': fst, 's': snd, 'i': FPS_IDS})
         want = reference_fps(fst, snd, 0.5, lam, mask_fn, loo, B - 1)
@@ -266,9 +302,14 @@ def test_fps_logq_lambda_zero_invariance():
     vals = []
     for loo in [False, True]:
         loss = FpsLogQLoss(
-            fst_embeddings_prefix='f', snd_embeddings_prefix='s', ids_prefix='i',
-            path_to_counts=path, tau=0.5, logq_lambda=0.0,
-            mask_false_negatives=True, leave_own_out=loo,
+            fst_embeddings_prefix='f',
+            snd_embeddings_prefix='s',
+            ids_prefix='i',
+            path_to_counts=path,
+            tau=0.5,
+            logq_lambda=0.0,
+            mask_false_negatives=True,
+            leave_own_out=loo,
         )
         vals.append(loss({'f': fst, 's': snd, 'i': FPS_IDS}))
     assert torch.allclose(vals[0], vals[1], atol=1e-7)
@@ -278,9 +319,13 @@ def test_leave_own_out_requires_masking():
     path = _counts_path()
     try:
         FpsLogQLoss(
-            fst_embeddings_prefix='f', snd_embeddings_prefix='s', ids_prefix='i',
-            path_to_counts=path, tau=0.5,
-            mask_false_negatives=False, leave_own_out=True,
+            fst_embeddings_prefix='f',
+            snd_embeddings_prefix='s',
+            ids_prefix='i',
+            path_to_counts=path,
+            tau=0.5,
+            mask_false_negatives=False,
+            leave_own_out=True,
         )
     except ValueError:
         return
@@ -315,9 +360,15 @@ def test_fps_logq_cross_only_matches_reference():
     snd = torch.randn(B, D)
     for lam, loo in [(1.0, False), (1.0, True), (0.0, False)]:
         loss = FpsLogQLoss(
-            fst_embeddings_prefix='f', snd_embeddings_prefix='s', ids_prefix='i',
-            path_to_counts=path, tau=0.5, logq_lambda=lam,
-            mask_false_negatives=True, leave_own_out=loo, scheme='cross_only',
+            fst_embeddings_prefix='f',
+            snd_embeddings_prefix='s',
+            ids_prefix='i',
+            path_to_counts=path,
+            tau=0.5,
+            logq_lambda=lam,
+            mask_false_negatives=True,
+            leave_own_out=loo,
+            scheme='cross_only',
         )
         got = loss({'f': fst, 's': snd, 'i': FPS_IDS})
         want = reference_fps_cross(fst, snd, 0.5, lam, True, loo, B - 1)
@@ -333,9 +384,14 @@ def test_inbatch_cosine_temperature_matches_reference():
     p_emb = torch.randn(B, D)
     tau = 0.1
     loss = MCLSRLogqInBatchLoss(
-        queries_prefix='q', positive_prefix='p', positive_ids_prefix='pid',
-        path_to_item_counts=path, logq_lambda=1.0,
-        normalize_embeddings=True, temperature=tau, user_ids_prefix='uid',
+        queries_prefix='q',
+        positive_prefix='p',
+        positive_ids_prefix='pid',
+        path_to_item_counts=path,
+        logq_lambda=1.0,
+        normalize_embeddings=True,
+        temperature=tau,
+        user_ids_prefix='uid',
     )
     got = loss({'q': q, 'p': p_emb, 'pid': POS_IDS, 'uid': USER_IDS})
 
@@ -359,7 +415,8 @@ def test_inbatch_cosine_temperature_matches_reference():
 
 def test_fps_paper_scheme_matches_manual():
     """Paper eq. 8: anchors = fst only, candidates = all snd + other fst."""
-    from irec.loss.base import FpsLoss
+    from irec.loss import FpsLoss
+
     torch.manual_seed(6)
     fst = torch.randn(B, D, requires_grad=True)
     snd = torch.randn(B, D)
@@ -382,22 +439,31 @@ def test_fps_logq_denominator_and_draws_value():
     Together they express the line-inclusion model for L_IC:
     q(v) = line_count(v) / num_lines, p = 1 - (1 - q)^lines_per_batch.
     """
-    from irec.loss.base import FpsLogQLoss
+    from irec.loss import FpsLogQLoss
+
     torch.manual_seed(9)
     counts = np.array([1.0, 5.0, 10.0, 3.0, 2.0, 1.0], dtype=np.float32)
     path = tempfile.NamedTemporaryFile(suffix='.pkl', delete=False)
-    pickle.dump(counts, path); path.close()
+    pickle.dump(counts, path)
+    path.close()
     denom, draws = 20.0, 7
 
     def make(**kw):
         return FpsLogQLoss(
-            'f', 's', ids_prefix='i', path_to_counts=path.name,
-            tau=0.5, logq_lambda=1.0, counts_denominator=denom, **kw,
+            'f',
+            's',
+            ids_prefix='i',
+            path_to_counts=path.name,
+            tau=0.5,
+            logq_lambda=1.0,
+            counts_denominator=denom,
+            **kw,
         )
 
     loss = make(num_draws_value=draws)
     assert torch.allclose(
-        loss._prob_table, torch.tensor(np.clip(counts / denom, 1e-10, 1.0)),
+        loss._prob_table,
+        torch.tensor(np.clip(counts / denom, 1e-10, 1.0)),
     )
 
     bsz = 4
@@ -413,29 +479,38 @@ def test_fps_logq_denominator_and_draws_value():
 
     # metadata-carrying artifact: role/max_len expectations are ENFORCED
     meta_path = tempfile.NamedTemporaryFile(suffix='.pkl', delete=False)
-    pickle.dump({
-        'counts': counts, 'denominator': denom,
-        'role': 'context-inclusion', 'max_len': 20,
-    }, meta_path); meta_path.close()
+    pickle.dump(
+        {
+            'counts': counts,
+            'denominator': denom,
+            'role': 'context-inclusion',
+            'max_len': 20,
+        },
+        meta_path,
+    )
+    meta_path.close()
 
     ok = FpsLogQLoss(
-        'f', 's', ids_prefix='i', path_to_counts=meta_path.name, tau=0.5,
-        expected_counts_role='context-inclusion', expected_counts_max_len=20,
+        'f',
+        's',
+        ids_prefix='i',
+        path_to_counts=meta_path.name,
+        tau=0.5,
+        expected_counts_role='context-inclusion',
+        expected_counts_max_len=20,
     )
     assert torch.allclose(ok._prob_table, loss._prob_table)  # denom from artifact
     for kwargs in (
-        {'expected_counts_role': 'target'},          # wrong role
-        {'expected_counts_max_len': 50},             # wrong max_len
+        {'expected_counts_role': 'target'},  # wrong role
+        {'expected_counts_max_len': 50},  # wrong max_len
     ):
         try:
-            FpsLogQLoss('f', 's', ids_prefix='i',
-                        path_to_counts=meta_path.name, tau=0.5, **kwargs)
+            FpsLogQLoss('f', 's', ids_prefix='i', path_to_counts=meta_path.name, tau=0.5, **kwargs)
             raise AssertionError(f'expected mismatch to raise: {kwargs}')
         except ValueError:
             pass
     try:  # expectations against a bare legacy array must fail too
-        FpsLogQLoss('f', 's', ids_prefix='i', path_to_counts=path.name,
-                    tau=0.5, expected_counts_role='target')
+        FpsLogQLoss('f', 's', ids_prefix='i', path_to_counts=path.name, tau=0.5, expected_counts_role='target')
         raise AssertionError('bare array cannot satisfy a role expectation')
     except ValueError:
         pass
@@ -443,30 +518,34 @@ def test_fps_logq_denominator_and_draws_value():
 
 def test_fps_euclidean_matches_manual():
     """similarity='euclidean': scores are -||a-b||^2 / tau in every scheme."""
-    from irec.loss.base import FpsLoss
+    from irec.loss import FpsLoss
+
     torch.manual_seed(8)
     fst = torch.randn(B, D, requires_grad=True)
     snd = torch.randn(B, D)
 
     got = FpsLoss('f', 's', tau=0.5, similarity='euclidean')({'f': fst, 's': snd})
     combined = torch.cat((fst.detach(), snd), dim=0)
-    s = -torch.cdist(combined, combined) ** 2 / 0.5
+    s = -(torch.cdist(combined, combined) ** 2) / 0.5
     rows = []
     for i in range(2 * B):
         pos = (i + B) % (2 * B)
         negs = [j for j in range(2 * B) if j != i and j != pos]
         rows.append(torch.cat((s[i, pos].reshape(1), s[i, negs])))
-    want = torch.nn.functional.cross_entropy(
-        torch.stack(rows), torch.zeros(2 * B, dtype=torch.long),
-    ) / 2
+    want = (
+        torch.nn.functional.cross_entropy(
+            torch.stack(rows),
+            torch.zeros(2 * B, dtype=torch.long),
+        )
+        / 2
+    )
     assert torch.allclose(got, want, atol=1e-5), (got.item(), want.item())
     got.backward()
     assert torch.isfinite(fst.grad).all()
 
-    got_paper = FpsLoss('f', 's', tau=0.5, scheme='paper',
-                        similarity='euclidean')({'f': fst.detach(), 's': snd})
+    got_paper = FpsLoss('f', 's', tau=0.5, scheme='paper', similarity='euclidean')({'f': fst.detach(), 's': snd})
     cand = torch.cat((snd, fst.detach()), dim=0)
-    sp = -torch.cdist(fst.detach(), cand) ** 2 / 0.5
+    sp = -(torch.cdist(fst.detach(), cand) ** 2) / 0.5
     for i in range(B):
         sp[i, B + i] = -1e12
     want_paper = torch.nn.functional.cross_entropy(sp, torch.arange(B))
@@ -484,25 +563,38 @@ def test_fps_euclidean_matches_manual():
 def test_fps_logq_euclidean_matches_manual():
     """similarity='euclidean' in fps_logq: lambda=0 without masking equals FpsLoss
     (euclidean); lambda=1 matches the naive reference on -||a-b||^2/tau scores."""
-    from irec.loss.base import FpsLoss
+    from irec.loss import FpsLoss
+
     torch.manual_seed(10)
     path = _counts_path()
     fst = torch.randn(B, D, requires_grad=True)
     snd = torch.randn(B, D)
     plain = FpsLoss('f', 's', tau=0.5, similarity='euclidean')({'f': fst, 's': snd})
     zero = FpsLogQLoss(
-        'f', 's', ids_prefix='i', path_to_counts=path, tau=0.5, logq_lambda=0.0,
-        mask_false_negatives=False, similarity='euclidean',
+        'f',
+        's',
+        ids_prefix='i',
+        path_to_counts=path,
+        tau=0.5,
+        logq_lambda=0.0,
+        mask_false_negatives=False,
+        similarity='euclidean',
     )({'f': fst, 's': snd, 'i': FPS_IDS})
     assert torch.allclose(plain, zero, atol=1e-5), (plain.item(), zero.item())
 
     got = FpsLogQLoss(
-        'f', 's', ids_prefix='i', path_to_counts=path, tau=0.5, logq_lambda=1.0,
-        mask_false_negatives=True, similarity='euclidean',
+        'f',
+        's',
+        ids_prefix='i',
+        path_to_counts=path,
+        tau=0.5,
+        logq_lambda=1.0,
+        mask_false_negatives=True,
+        similarity='euclidean',
     )({'f': fst, 's': snd, 'i': FPS_IDS})
     prob = _probs()
     z = torch.cat((fst.detach(), snd), 0).double()
-    scores = -torch.cdist(z, z) ** 2 / 0.5
+    scores = -(torch.cdist(z, z) ** 2) / 0.5
     cid = torch.cat((FPS_IDS, FPS_IDS))
     V = 2 * B
     corr = torch.zeros(V, V, dtype=torch.float64)
@@ -527,22 +619,28 @@ def test_fps_logq_centered_and_full_softmax():
     """center_log_q: with a flat count table the centered correction vanishes,
     so lambda=1 equals lambda=0; full_softmax: CE over the whole table with the
     padding and mask columns excluded."""
-    from irec.loss.base import FullSoftmaxLoss
+    from irec.loss import FullSoftmaxLoss
+
     torch.manual_seed(12)
     flat = tempfile.NamedTemporaryFile(suffix='.pkl', delete=False)
-    pickle.dump(np.full(len(COUNTS), 30.0, dtype=np.float32), flat); flat.close()
+    pickle.dump(np.full(len(COUNTS), 30.0, dtype=np.float32), flat)
+    flat.close()
     fst, snd = torch.randn(B, D), torch.randn(B, D)
     ids = torch.arange(1, B + 1)  # no duplicates: masking plays no role
-    a = FpsLogQLoss('f', 's', ids_prefix='i', path_to_counts=flat.name, tau=0.5,
-                    logq_lambda=1.0, center_log_q=True)({'f': fst, 's': snd, 'i': ids})
-    b = FpsLogQLoss('f', 's', ids_prefix='i', path_to_counts=flat.name, tau=0.5,
-                    logq_lambda=0.0)({'f': fst, 's': snd, 'i': ids})
+    a = FpsLogQLoss('f', 's', ids_prefix='i', path_to_counts=flat.name, tau=0.5, logq_lambda=1.0, center_log_q=True)(
+        {'f': fst, 's': snd, 'i': ids}
+    )
+    b = FpsLogQLoss('f', 's', ids_prefix='i', path_to_counts=flat.name, tau=0.5, logq_lambda=0.0)(
+        {'f': fst, 's': snd, 'i': ids}
+    )
     assert torch.allclose(a, b, atol=1e-6), (a.item(), b.item())
     # with a skewed table the centered correction differs from the plain one
-    c = FpsLogQLoss('f', 's', ids_prefix='i', path_to_counts=_counts_path(), tau=0.5,
-                    logq_lambda=1.0, center_log_q=True)({'f': fst, 's': snd, 'i': FPS_IDS})
-    d = FpsLogQLoss('f', 's', ids_prefix='i', path_to_counts=_counts_path(), tau=0.5,
-                    logq_lambda=1.0)({'f': fst, 's': snd, 'i': FPS_IDS})
+    c = FpsLogQLoss(
+        'f', 's', ids_prefix='i', path_to_counts=_counts_path(), tau=0.5, logq_lambda=1.0, center_log_q=True
+    )({'f': fst, 's': snd, 'i': FPS_IDS})
+    d = FpsLogQLoss('f', 's', ids_prefix='i', path_to_counts=_counts_path(), tau=0.5, logq_lambda=1.0)(
+        {'f': fst, 's': snd, 'i': FPS_IDS}
+    )
     assert not torch.allclose(c, d)
 
     n_items = 10
@@ -566,22 +664,28 @@ def test_matched_full_softmax_matches_manual():
     presence-based mask it must stay a valid positive; the old count<=1 mask
     poisoned such anchors with a -1e12 positive (loss ~1e12).
     """
-    from irec.loss.base import MatchedContrastiveFullSoftmaxLoss
+    from irec.loss import MatchedContrastiveFullSoftmaxLoss
+
     torch.manual_seed(7)
     n_ent = 10  # table size = n_ent + 2
     # invalid: 0 (padding), 3 (truly absent from train), 11 (mask token)
     presence = [False, True, True, False, True, True, True, True, True, True, True, False]
     path = tempfile.NamedTemporaryFile(suffix='.pkl', delete=False)
-    pickle.dump(torch.tensor(presence).numpy(), path); path.close()
+    pickle.dump(torch.tensor(presence).numpy(), path)
+    path.close()
 
     Bn = 4
     ids = torch.tensor([1, 2, 4, 2])  # id=1 = singleton-anchor; duplicate id=2 OK
     fa, sa = torch.randn(Bn, D, requires_grad=True), torch.randn(Bn, D)
     ft, st = torch.randn(n_ent + 2, D), torch.randn(n_ent + 2, D)
     loss = MatchedContrastiveFullSoftmaxLoss(
-        fst_anchors_prefix='fa', snd_anchors_prefix='sa',
-        fst_table_prefix='ft', snd_table_prefix='st',
-        ids_prefix='i', path_to_train_presence=path.name, tau=0.5,
+        fst_anchors_prefix='fa',
+        snd_anchors_prefix='sa',
+        fst_table_prefix='ft',
+        snd_table_prefix='st',
+        ids_prefix='i',
+        path_to_train_presence=path.name,
+        tau=0.5,
     )
     got = loss({'fa': fa, 'sa': sa, 'ft': ft, 'st': st, 'i': ids})
     assert got.item() < 100, f'singleton anchor positive was masked: loss={got.item()}'
@@ -618,7 +722,10 @@ def test_contrastive_full_softmax_matches_manual():
     anchors = torch.randn(B, D)
     ids = torch.tensor([1, 1, 2, 3, 4, 5, 11, 12])  # duplicate anchors OK
     loss = ContrastiveFullSoftmaxLoss(
-        anchors_prefix='a', table_prefix='t', ids_prefix='i', tau=0.5,
+        anchors_prefix='a',
+        table_prefix='t',
+        ids_prefix='i',
+        tau=0.5,
     )
     got = loss({'a': anchors, 't': table, 'i': ids})
     s = (anchors @ table.detach().T) / 0.5
