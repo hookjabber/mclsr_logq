@@ -1,6 +1,5 @@
 from irec.utils import MetaParent
 
-import copy
 
 
 class TrainSampler(metaclass=MetaParent):

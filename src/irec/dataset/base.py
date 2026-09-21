@@ -431,9 +431,6 @@ class GraphDataset(BaseDataset, config_name='graph'):
                     if source_entity == connected_entity:
                         continue
 
-                    pair_key = (source_entity, connected_entity)
-                    # if pair_key in visited_entity_pairs:
-                        # continue
                     
                     # visited_entity_pairs.add(pair_key)
                     interactions_fst.append(source_entity)
@@ -777,7 +774,8 @@ class MCLSRDataset(BaseSequenceDataset, config_name='mclsr'):
         train_dataset = [{'user.ids': [uid], 'user.length': 1, 'item.ids': seq, 'item.length': len(seq)} for uid, seq in train_samples]
 
         user_to_all_seen_items = defaultdict(set)
-        for sample in train_dataset: user_to_all_seen_items[sample['user.ids'][0]].update(sample['item.ids'])
+        for sample in train_dataset:
+            user_to_all_seen_items[sample['user.ids'][0]].update(sample['item.ids'])
         kwargs['user_to_all_seen_items'] = user_to_all_seen_items
 
         eval_hist_len = config.get('eval_history_max_len', max_seq_len)

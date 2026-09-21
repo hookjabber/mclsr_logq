@@ -5,7 +5,6 @@ import os
 import numpy as np
 import torch
 
-import irec.utils
 from irec.dataloader import BaseDataloader
 from irec.dataset import BaseDataset
 from irec.metric import BaseMetric, StatefullMetric

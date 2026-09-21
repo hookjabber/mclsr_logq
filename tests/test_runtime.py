@@ -6,6 +6,7 @@ decile-analysis helpers (tie-preserving bins, Holm adjustment).
 
     python tests/test_runtime.py
 """
+
 import os
 import sys
 
@@ -14,10 +15,12 @@ import torch
 import torch.nn as nn
 
 sys.path.insert(
-    0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'src'),
+    0,
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'src'),
 )
 sys.path.insert(
-    0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'scripts'),
+    0,
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'scripts'),
 )
 
 from irec.train import train, unwrap_state_dict  # noqa: E402
@@ -126,6 +129,7 @@ def test_unwrap_state_dict():
 
 def test_sasrec_negative_rejection():
     from irec.models.sasrec import SasRecModel
+
     torch.manual_seed(0)
     num_items = 12
     model = SasRecModel(
@@ -144,9 +148,13 @@ def test_sasrec_negative_rejection():
     lengths = torch.tensor([6, 3])
     positives = torch.tensor([2, 3, 4, 5, 6, 7, 9, 10, 11])
     for trial in range(5):
-        out = model({
-            'item.ids': seq, 'item.length': lengths, 'labels.ids': positives,
-        })
+        out = model(
+            {
+                'item.ids': seq,
+                'item.length': lengths,
+                'labels.ids': positives,
+            }
+        )
         negatives = out['negative_ids']
         assert negatives.shape == positives.shape
         assert (negatives >= 1).all() and (negatives <= num_items).all()
@@ -162,16 +170,24 @@ def test_sasrec_negative_rejection():
     # dense catalog: user consumed everything -> must raise, never silently
     # accept a colliding negative
     dense = SasRecModel(
-        sequence_prefix='item', positive_prefix='labels', num_items=2,
-        max_sequence_length=4, embedding_dim=8, num_heads=2, num_layers=1,
+        sequence_prefix='item',
+        positive_prefix='labels',
+        num_items=2,
+        max_sequence_length=4,
+        embedding_dim=8,
+        num_heads=2,
+        num_layers=1,
         dim_feedforward=16,
     )
     dense.train()
     try:
-        dense({
-            'item.ids': torch.tensor([1]), 'item.length': torch.tensor([1]),
-            'labels.ids': torch.tensor([2]),
-        })
+        dense(
+            {
+                'item.ids': torch.tensor([1]),
+                'item.length': torch.tensor([1]),
+                'labels.ids': torch.tensor([2]),
+            }
+        )
         raise AssertionError('dense-catalog rejection must raise')
     except RuntimeError:
         pass
@@ -179,10 +195,16 @@ def test_sasrec_negative_rejection():
 
 def test_sasrec_inbatch_user_ids_and_last_query():
     from irec.models.sasrec import SasRecInBatchModel
+
     torch.manual_seed(0)
     kwargs = dict(
-        sequence_prefix='item', positive_prefix='positive', num_items=12,
-        max_sequence_length=8, embedding_dim=8, num_heads=2, num_layers=1,
+        sequence_prefix='item',
+        positive_prefix='positive',
+        num_items=12,
+        max_sequence_length=8,
+        embedding_dim=8,
+        num_heads=2,
+        num_layers=1,
         dim_feedforward=16,
     )
     batch = {
@@ -192,11 +214,13 @@ def test_sasrec_inbatch_user_ids_and_last_query():
         'user.ids': torch.tensor([21, 22]),
         'user.length': torch.tensor([1, 1]),
     }
-    model = SasRecInBatchModel(**kwargs); model.train()
+    model = SasRecInBatchModel(**kwargs)
+    model.train()
     out = model(batch)
     assert out['query_embeddings'].shape == (9, 8)
     assert out['user_ids'].tolist() == [21] * 6 + [22] * 3  # one owner per query
-    last = SasRecInBatchModel(query_positions='last', **kwargs); last.train()
+    last = SasRecInBatchModel(query_positions='last', **kwargs)
+    last.train()
     out = last(batch)
     assert out['query_embeddings'].shape == (2, 8)
     assert out['positive_ids'].tolist() == [7, 11]  # final positive of each sequence
@@ -205,6 +229,7 @@ def test_sasrec_inbatch_user_ids_and_last_query():
 
 def test_tie_preserving_bins_and_holm():
     from decile_recall import build_bins, holm_adjust
+
     # ids 1..10 real; heavy ties at count 5
     counts = np.array([1, 5, 5, 5, 5, 2, 2, 9, 9, 3, 7, 1], dtype=float)
     bins, n_bins = build_bins(counts, num_bins=4, tie_preserving=True)
@@ -212,14 +237,11 @@ def test_tie_preserving_bins_and_holm():
     for value in np.unique(real):
         assigned = {bins[i + 1] for i in range(10) if real[i] == value}
         assert len(assigned) == 1, (value, assigned)  # ties never split
-    order_means = [
-        np.mean([real[i] for i in range(10) if bins[i + 1] == b])
-        for b in range(n_bins)
-    ]
+    order_means = [np.mean([real[i] for i in range(10) if bins[i + 1] == b]) for b in range(n_bins)]
     assert order_means == sorted(order_means)
 
     adjusted = holm_adjust([0.01, 0.04, 0.03, 0.5])
-    assert np.isclose(adjusted[0], 0.04)   # 0.01 * 4
+    assert np.isclose(adjusted[0], 0.04)  # 0.01 * 4
     assert np.isclose(adjusted[3], 0.5)
     assert (np.asarray(adjusted) >= [0.01, 0.04, 0.03, 0.5]).all()
     assert adjusted[1] >= adjusted[2] >= adjusted[0]  # monotone step-down
@@ -227,6 +249,7 @@ def test_tie_preserving_bins_and_holm():
 
 def test_scientific_split_before_truncation():
     from irec.dataset.base import BaseSequenceDataset
+
     lines = ['7 ' + ' '.join(str(i) for i in range(1, 11))]  # 10 items
     _, seqs, _, _, _ = BaseSequenceDataset._create_sequences(lines)
     assert seqs[0] == list(range(1, 11))  # no truncation without max_len

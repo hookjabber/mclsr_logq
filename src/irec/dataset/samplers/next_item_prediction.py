@@ -1,7 +1,6 @@
 from irec.dataset.samplers.base import TrainSampler, EvalSampler
 from irec.dataset.negative_samplers.base import BaseNegativeSampler
 
-import copy
 
 
 class NextItemPredictionTrainSampler(
