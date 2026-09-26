@@ -2,7 +2,7 @@
 
 One row per arm and dataset. **Seeds** columns: confirmatory runs (`scripts/train_confirmatory.py`, test read once on the validation-selected checkpoint; reports in `results/confirm/`, mean ± std over the listed seeds). **Single run** columns: exploratory run with seed 42 (test taken at the validation-best step from the TensorBoard log; approximate to ±1 evaluation interval). Metrics: test ndcg@20 / recall@1000 over the full catalogue. Figures and headline tables: `RESULTS.md`.
 
-## Clothing — 51 arms
+## Clothing — 52 arms
 
 | arm (config) | what it is | seeds: ndcg@20 / recall@1000 | seeds | single run (seed 42): ndcg@20 / recall@1000 | runs |
 |---|---|---|---|---|---|
@@ -37,6 +37,7 @@ One row per arm and dataset. **Seeds** columns: confirmatory runs (`scripts/trai
 | 04_graph_logq_lil_pos | 04 with the positive corrected too (standard form) on L_IL | — | — | 0.0260 / 0.3533 | 1 |
 | [05_full_baseline](configs/train/clothing64/05_full_baseline.json) | paper model: graph + L_IL + L_UC + L_IC (γ=0.05); logQ on L_P | — | — | 0.0266 / 0.3549 | 1 |
 | [05_full_baseline_g01](configs/train/grid/05_full_baseline_g01.json) | paper model with γ=0.1 | — | — | 0.0270 / 0.3589 | 1 |
+| [05_full_l00](configs/train/clothing64/05_full_l00.json) | paper model (graph + L_IL + L_UC + L_IC) without the correction (λ=0) | 0.0166 ± 0.0012 / 0.2919 ± 0.0046 | 1,2,3 | — | 3 |
 | [06_full_logq_ucic](configs/train/clothing64/06_full_logq_ucic.json) | paper model, logQ also on L_UC / L_IC | — | — | 0.0253 / 0.3541 | 2 |
 | [06_full_logq_ucic_g01](configs/train/grid/06_full_logq_ucic_g01.json) | paper model, logQ on L_UC / L_IC, γ=0.1 | — | — | 0.0262 / 0.3599 | 1 |
 | [07_full_logq_all](configs/train/grid/07_full_logq_all.json) | paper model, logQ on every loss | — | — | 0.0129 / 0.2754 | 2 |
@@ -58,7 +59,7 @@ One row per arm and dataset. **Seeds** columns: confirmatory runs (`scripts/trai
 | [sasrec_inbatch_l00](configs/train/clothing64/sasrec_inbatch_l00.json) | SASRec, in-batch sampled softmax, no correction | 0.0085 ± 0.0004 / 0.2105 ± 0.0060 | 1,2,3 | 0.0085 / — | 4 |
 | [sasrec_inbatch_logq](configs/train/clothing64/sasrec_inbatch_logq.json) | SASRec, in-batch + logQ | 0.0178 ± 0.0012 / 0.3004 ± 0.0035 | 1,2,3 | 0.0155 / — | 4 |
 
-## Beauty — 75 arms
+## Beauty — 82 arms
 
 | arm (config) | what it is | seeds: ndcg@20 / recall@1000 | seeds | single run (seed 42): ndcg@20 / recall@1000 | runs |
 |---|---|---|---|---|---|
@@ -93,14 +94,19 @@ One row per arm and dataset. **Seeds** columns: confirmatory runs (`scripts/trai
 | [03_graph_cosine_t01](configs/train/beauty/03_graph_cosine_t01.json) | 03 with cosine L_IL, τ=0.1 | — | — | 0.0569 / 0.5368 | 1 |
 | [03_graph_cosine_t05](configs/train/beauty/03_graph_cosine_t05.json) | 03 with cosine L_IL, τ=0.5 | — | — | 0.0577 / 0.5327 | 1 |
 | [03_graph_cosine_t10](configs/train/beauty/03_graph_cosine_t10.json) | 03 with cosine L_IL, τ=1 | — | — | 0.0547 / 0.5308 | 1 |
+| [03_graph_depth0](configs/train/beauty/03_graph_depth0.json) | 03 with no graph propagation (raw user / item embeddings feed the general-interest branch) | 0.0575 ± 0.0016 / 0.5146 ± 0.0021 | 1,2,3 | — | 3 |
+| [03_graph_depth1](configs/train/beauty/03_graph_depth1.json) | 03 with one propagation layer | 0.0470 ± 0.0000 / 0.4975 ± 0.0000 | 1 | — | 1 |
 | [03_graph_euclid_t05](configs/train/beauty/03_graph_euclid_t05.json) | 03 with squared-euclidean L_IL, τ=0.5 | — | — | 0.0589 / 0.5398 | 1 |
 | [03_graph_euclid_t1](configs/train/beauty/03_graph_euclid_t1.json) | 03 with squared-euclidean L_IL, τ=1 | — | — | 0.0574 / 0.5405 | 1 |
 | [03_graph_euclid_t20](configs/train/beauty/03_graph_euclid_t20.json) | 03 with squared-euclidean L_IL, τ=2 | — | — | 0.0599 / 0.5367 | 1 |
+| [03_graph_gd0](configs/train/beauty/03_graph_gd0.json) | 03 without graph edge dropout | 0.0546 ± 0.0000 / 0.5323 ± 0.0000 | 1 | — | 1 |
 | [03_graph_il00](configs/train/beauty/03_graph_il00.json) | graph without L_IL (β=0) | 0.0500 ± 0.0007 / 0.4977 ± 0.0022 | 1,2,3 | 0.0537 / 0.4924 | 4 |
 | [03_graph_il025](configs/train/beauty/03_graph_il025.json) | 03 with β=0.25 | — | — | 0.0569 / 0.5454 | 1 |
 | [03_graph_il05](configs/train/beauty/03_graph_il05.json) | 03 with L_IL weight β=0.5 | 0.0580 ± 0.0004 / 0.5405 ± 0.0077 | 1,2,3 | 0.0591 / 0.5317 | 4 |
 | [03_graph_il20](configs/train/beauty/03_graph_il20.json) | 03 with β=2 | — | — | 0.0532 / 0.5151 | 1 |
 | [03_graph_l00](configs/train/beauty/03_graph_l00.json) | graph + L_IL without the correction (λ=0) — factorial cell | 0.0393 ± 0.0010 / 0.4735 ± 0.0069 | 1,2,3 | — | 3 |
+| [03_graph_mean](configs/train/beauty/03_graph_mean.json) | 03 with the LightGCN layer mean (layers 0..2 averaged) instead of the last layer | 0.0552 ± 0.0000 / 0.5240 ± 0.0000 | 1 | — | 1 |
+| [03_graph_mean_gd0](configs/train/beauty/03_graph_mean_gd0.json) | 03 with the layer mean and no edge dropout | 0.0532 ± 0.0000 / 0.5099 ± 0.0000 | 1 | — | 1 |
 | [03_graph_paper_faithful](configs/train/beauty/03_graph_paper_faithful.json) | 03 with shared projector, cosine L_IL and the paper scheme | — | — | 0.0569 / 0.5154 | 1 |
 | [03_graph_sharedproj](configs/train/beauty/03_graph_sharedproj.json) | 03 with a shared L_IL projector | — | — | 0.0565 / 0.5357 | 1 |
 | [04_graph_logq_lil](configs/train/beauty/04_graph_logq_lil.json) | as 03, logQ also on L_IL | 0.0508 ± 0.0005 / 0.5294 ± 0.0029 | 1,2,3 | 0.0522 / 0.5293 | 4 |
@@ -113,6 +119,8 @@ One row per arm and dataset. **Seeds** columns: confirmatory runs (`scripts/trai
 | [04_graph_logq_lil_l03](configs/train/beauty/04_graph_logq_lil_l03.json) | 04 with λ_IL=0.3 | — | — | 0.0544 / 0.5331 | 1 |
 | [04_graph_logq_lil_uniformq](configs/train/beauty/04_graph_logq_lil_uniformq.json) | 04 with a constant user-count table (pure margin, no popularity information) | 0.0524 ± 0.0014 / 0.5276 ± 0.0026 | 1,2,3 | 0.0521 / 0.5206 | 4 |
 | [05_full_baseline](configs/train/beauty/05_full_baseline.json) | paper model: graph + L_IL + L_UC + L_IC (γ=0.05); logQ on L_P | 0.0573 ± 0.0012 / 0.5390 ± 0.0033 | 1,2,3 | 0.0563 / 0.5344 | 4 |
+| [05_full_l00](configs/train/beauty/05_full_l00.json) | paper model (graph + L_IL + L_UC + L_IC) without the correction (λ=0) | 0.0374 ± 0.0005 / 0.4724 ± 0.0081 | 1,2,3 | — | 3 |
+| [05_full_mean](configs/train/beauty/05_full_mean.json) | paper model with the LightGCN layer mean instead of the last layer | 0.0561 ± 0.0000 / 0.5223 ± 0.0000 | 1 | — | 1 |
 | [05_full_uw](configs/train/beauty/05_full_uw.json) | paper model with learned (uncertainty) loss weights | — | — | 0.0437 / 0.5029 | 1 |
 | [05_full_w01](configs/train/beauty/05_full_w01.json) | paper model with γ=0.1 | — | — | 0.0565 / 0.5485 | 1 |
 | [05_full_w02](configs/train/beauty/05_full_w02.json) | paper model with γ=0.2 | — | — | 0.0557 / 0.5348 | 1 |
@@ -120,7 +128,7 @@ One row per arm and dataset. **Seeds** columns: confirmatory runs (`scripts/trai
 | [05_minus_ic](configs/train/beauty/05_minus_ic.json) | paper model minus the item–item graph loss L_IC | 0.0570 ± 0.0004 / 0.5407 ± 0.0029 | 1,2,3 | — | 3 |
 | [05_minus_il](configs/train/beauty/05_minus_il.json) | paper model minus the alignment loss L_IL | 0.0516 ± 0.0017 / 0.4896 ± 0.0036 | 1,2,3 | — | 3 |
 | [05_minus_uc](configs/train/beauty/05_minus_uc.json) | paper model minus the user–user graph loss L_UC | 0.0565 ± 0.0003 / 0.5347 ± 0.0068 | 1,2,3 | — | 3 |
-| [06_full_logq_ucic](configs/train/beauty/06_full_logq_ucic.json) | paper model, logQ also on L_UC / L_IC | — | — | 0.0537 / 0.5389 | 1 |
+| [06_full_logq_ucic](configs/train/beauty/06_full_logq_ucic.json) | paper model, logQ also on L_UC / L_IC | 0.0557 ± 0.0019 / 0.5398 ± 0.0041 | 1,2,3 | 0.0537 / 0.5389 | 4 |
 | [07_full_logq_all](configs/train/beauty/07_full_logq_all.json) | paper model, logQ on every loss | — | — | 0.0516 / 0.5246 | 1 |
 | [09_item_only](configs/train/beauty/09_item_only.json) | graph + L_IC only (no L_IL, no L_UC) | — | — | 0.0535 / 0.4876 | 1 |
 | [10_item_only_logq](configs/train/beauty/10_item_only_logq.json) | graph + L_IC with logQ | — | — | 0.0548 / 0.5024 | 1 |
@@ -138,7 +146,7 @@ One row per arm and dataset. **Seeds** columns: confirmatory runs (`scripts/trai
 | [sasrec_ladder_l00](configs/train/beauty/sasrec_ladder_l00.json) | SASRec λ=0 on the MCLSR prefix ladder (last-position query) | — | — | 0.0408 / 0.4017 | 1 |
 | [sasrec_ladder_logq](configs/train/beauty/sasrec_ladder_logq.json) | SASRec λ=1 on the prefix ladder | — | — | 0.0605 / 0.4675 | 1 |
 
-## CDs & Vinyl ("Toys") — 27 arms
+## CDs & Vinyl ("Toys") — 29 arms
 
 | arm (config) | what it is | seeds: ndcg@20 / recall@1000 | seeds | single run (seed 42): ndcg@20 / recall@1000 | runs |
 |---|---|---|---|---|---|
@@ -146,16 +154,18 @@ One row per arm and dataset. **Seeds** columns: confirmatory runs (`scripts/trai
 | [02_logq_corrected](configs/train/toys/02_logq_corrected.json) | 02 with the RecSys'25 corrected form (positive out of the denominator, sg(1−P̂) weight) | — | — | 0.0484 / 0.4818 | 1 |
 | [02_logq_downstream](configs/train/toys/02_logq_downstream.json) | MCLSR without graph; in-batch + logQ on L_P (λ=1) | 0.0497 ± 0.0009 / 0.4806 ± 0.0015 | 1,2,3 | 0.0492 / 0.4767 | 5 |
 | [03_graph](configs/train/toys/03_graph.json) | full model: user–item graph + L_IL; logQ on L_P | 0.0497 ± 0.0005 / 0.5075 ± 0.0030 | 1,2,3 | 0.0499 / 0.5040 | 4 |
+| [03_graph_depth0](configs/train/toys/03_graph_depth0.json) | 03 with no graph propagation (raw user / item embeddings feed the general-interest branch) | 0.0509 ± 0.0000 / 0.4999 ± 0.0000 | 1 | — | 1 |
 | [03_graph_euclid_t1](configs/train/toys/03_graph_euclid_t1.json) | 03 with squared-euclidean L_IL, τ=1 | — | — | 0.0485 / 0.4986 | 1 |
 | [03_graph_il00](configs/train/toys/03_graph_il00.json) | graph without L_IL (β=0) | 0.0390 ± 0.0009 / 0.4454 ± 0.0017 | 1,2,3 | — | 3 |
 | [03_graph_l00](configs/train/toys/03_graph_l00.json) | graph + L_IL without the correction (λ=0) — factorial cell | 0.0376 ± 0.0004 / 0.4431 ± 0.0023 | 1,2,3 | — | 3 |
 | [04_graph_logq_lil](configs/train/toys/04_graph_logq_lil.json) | as 03, logQ also on L_IL | 0.0489 ± 0.0007 / 0.5054 ± 0.0035 | 1,2,3 | 0.0485 / 0.5031 | 4 |
 | [04_graph_logq_lil_uniformq](configs/train/toys/04_graph_logq_lil_uniformq.json) | 04 with a constant user-count table (pure margin, no popularity information) | 0.0489 ± 0.0003 / 0.5052 ± 0.0005 | 1,2,3 | — | 3 |
 | [05_full_baseline](configs/train/toys/05_full_baseline.json) | paper model: graph + L_IL + L_UC + L_IC (γ=0.05); logQ on L_P | 0.0494 ± 0.0004 / 0.5064 ± 0.0037 | 1,2,3 | 0.0488 / 0.5059 | 4 |
+| [05_full_l00](configs/train/toys/05_full_l00.json) | paper model (graph + L_IL + L_UC + L_IC) without the correction (λ=0) | 0.0385 ± 0.0003 / 0.4474 ± 0.0015 | 1,2,3 | — | 3 |
 | [05_minus_ic](configs/train/toys/05_minus_ic.json) | paper model minus the item–item graph loss L_IC | 0.0488 ± 0.0007 / 0.5052 ± 0.0027 | 1,2,3 | — | 3 |
 | [05_minus_il](configs/train/toys/05_minus_il.json) | paper model minus the alignment loss L_IL | 0.0404 ± 0.0008 / 0.4487 ± 0.0017 | 1,2,3 | — | 3 |
 | [05_minus_uc](configs/train/toys/05_minus_uc.json) | paper model minus the user–user graph loss L_UC | 0.0494 ± 0.0005 / 0.5053 ± 0.0020 | 1,2,3 | — | 3 |
-| [06_full_logq_ucic](configs/train/toys/06_full_logq_ucic.json) | paper model, logQ also on L_UC / L_IC | — | — | 0.0478 / 0.5014 | 1 |
+| [06_full_logq_ucic](configs/train/toys/06_full_logq_ucic.json) | paper model, logQ also on L_UC / L_IC | 0.0498 ± 0.0007 / 0.5054 ± 0.0025 | 1,2,3 | 0.0478 / 0.5014 | 4 |
 | [09_item_only](configs/train/toys/09_item_only.json) | graph + L_IC only (no L_IL, no L_UC) | — | — | 0.0407 / 0.4533 | 1 |
 | [10_item_only_logq](configs/train/toys/10_item_only_logq.json) | graph + L_IC with logQ | — | — | 0.0390 / 0.4308 | 1 |
 | [14_full_softmax](configs/train/toys/14_full_softmax.json) | exact full-catalogue softmax on L_P (no sampling), no graph | 0.0534 ± 0.0007 / 0.4939 ± 0.0006 | 1,2,3 | — | 3 |
@@ -170,4 +180,4 @@ One row per arm and dataset. **Seeds** columns: confirmatory runs (`scripts/trai
 | [sasrec_ladder_l00](configs/train/toys/sasrec_ladder_l00.json) | SASRec λ=0 on the MCLSR prefix ladder (last-position query) | — | — | 0.0283 / — | 1 |
 | [sasrec_ladder_logq](configs/train/toys/sasrec_ladder_logq.json) | SASRec λ=1 on the prefix ladder | — | — | 0.0405 / — | 1 |
 
-Total training runs indexed: 280. Re-run summaries: `python scripts/summarize_runs.py --pattern "<prefix>_*" --report eval/ndcg@20 eval/recall@1000` over `tensorboard_logs/`, and `python scripts/summarize_seeds.py --prefix <beauty|toys|clothing64>`.
+Total training runs indexed: 304. Re-run summaries: `python scripts/summarize_runs.py --pattern "<prefix>_*" --report eval/ndcg@20 eval/recall@1000` over `tensorboard_logs/`, and `python scripts/summarize_seeds.py --prefix <beauty|toys|clothing64>`.
