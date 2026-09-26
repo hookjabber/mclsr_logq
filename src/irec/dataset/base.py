@@ -559,7 +559,8 @@ class GraphDataset(BaseDataset, config_name='graph'):
             )
         
         rowsum = np.array(adj_mat.sum(1))
-        d_inv = np.power(rowsum, -0.5).flatten()
+        with np.errstate(divide='ignore'):  # zero-degree rows (padding, users without edges) get 0 below
+            d_inv = np.power(rowsum, -0.5).flatten()
         d_inv[np.isinf(d_inv)] = 0.
         d_mat_inv = sp.diags(d_inv)
         

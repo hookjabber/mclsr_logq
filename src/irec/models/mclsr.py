@@ -37,6 +37,7 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
         initializer_range=0.02,
         use_graph=True,
         share_il_projector=False,
+        graph_layer_mean=False,
         output_full_contrastive_tables=False,
         eval_top_k=50,
     ):
@@ -56,6 +57,9 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
         self._graph_dropout = graph_dropout
 
         self._alpha = alpha
+        # LightGCN combination: False = output of the last propagation layer (the paper's
+        # eq. 1 read literally); True = mean over layers 0..L as in the LightGCN paper
+        self._graph_layer_mean = graph_layer_mean
         self._use_graph = use_graph
         self._eval_top_k = eval_top_k
         if self._eval_top_k <= 0:
@@ -195,6 +199,7 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
             initializer_range=config.get('initializer_range', 0.02),
             use_graph=use_graph,
             share_il_projector=config.get('share_il_projector', False),
+            graph_layer_mean=config.get('graph_layer_mean', False),
             output_full_contrastive_tables=config.get(
                 'output_full_contrastive_tables', False,
             ),
@@ -335,7 +340,7 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
                                              self._item_embeddings.weight], 
                                              dim=0)
             all_graph_embeddings = self._apply_graph_encoder(embeddings=all_init_embeddings, 
-                                                             graph=self._graph)
+                                                             graph=self._graph, use_mean=self._graph_layer_mean)
 
             common_graph_user_embs_all, common_graph_item_embs_all = torch.split(
                 all_graph_embeddings, [self._num_users + 2, self._num_items + 2]
@@ -411,7 +416,7 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
                 # L_UC (User-level CL)
                 user_graph_user_embs_all = self._apply_graph_encoder(
                     embeddings=self._user_embeddings.weight,
-                    graph=self._user_graph,
+                    graph=self._user_graph, use_mean=self._graph_layer_mean
                 )
                 user_graph_user_embs_batch = user_graph_user_embs_all[user_ids]
 
@@ -436,7 +441,7 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
 
                 item_graph_items_all = self._apply_graph_encoder(
                     embeddings=self._item_embeddings.weight,
-                    graph=self._item_graph,
+                    graph=self._item_graph, use_mean=self._graph_layer_mean
                 )
                 item_graph_items_flat = item_graph_items_all[all_sample_events]
 

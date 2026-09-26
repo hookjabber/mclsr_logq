@@ -15,6 +15,5 @@ new_tensorboard_logs/
 docs/
 results/*
 !results/confirm/
-!results/prereg/
 !results/deciles/
 !results/explor/
