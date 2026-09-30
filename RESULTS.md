@@ -156,9 +156,18 @@ near-duplicates, which changes nothing downstream. This is consistent with every
 the feature level having no effect: removing the graphs, correcting their losses, or scaling γ
 from 0.05 to 0.5.
 
-Independent replication: `scripts/indep_check_beauty.py` (no `irec` code — own data
-loading, encoder, loss and metrics) gives 0.0411 / 0.408 → 0.0619 / 0.524 on Beauty
-(+51 % / +29 %). Data checks (`scripts/check_split_leakage.py`): train/valid/test users
+Independent replications with no `irec` code (own data loading, encoder, loss and metrics):
+`scripts/indep_check_beauty.py` gives 0.0411 / 0.408 → 0.0619 / 0.524 on Beauty (+51 % / +29 %,
+one seed); `scripts/indep_check_clothing.py`, written by a second author who had not read the
+framework, gives 0.0143 ± 0.0004 / 0.203 → 0.0211 ± 0.0012 / 0.288 on Clothing (3 seeds, 8 epochs;
++47 % / +42 %, positive on every seed) against the framework's 0.0152 / 0.252 → 0.0226 / 0.314.
+The effect also appears in the authors' own code of the RecSys'25 correction (the public
+gSASRec-based repository of Khrylchenko, Baikalov et al.) run unchanged on the Clothing split
+converted to its next-item format (one target per held-out user, its metrics, its SASRec):
+validation nDCG@20 0.0103 ± 0.0002 without correction, 0.0121 ± 0.0009 with the standard
+form and 0.0132 ± 0.0005 with the corrected form (3 seeds; +18 % and +28 %, positive on every
+seed; R@20 0.019 → 0.025 / 0.027). These numbers are on that code's single-target protocol and are
+only comparable with each other. Data checks (`scripts/check_split_leakage.py`): train/valid/test users
 are disjoint; count tables and graphs are reconstructed exactly from the train files.
 
 ## Part B. Clothing exploratory study (July–August 2026, single seed)

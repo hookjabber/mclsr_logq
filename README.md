@@ -54,7 +54,7 @@ Where to look:
 - [RESULTS.md](./RESULTS.md) — figures, headline tables, mechanism and sensitivity tables, component ablation (Part A); the original single-seed Clothing study (Part B).
 - [RUN_INDEX.md](./RUN_INDEX.md) — every training run of the study (≈150 arms, ≈280 runs), labelled, with links to its config.
 - Per-run reports with content hashes: [results/confirm/](./results/confirm/).
-- Code: the correction variants and the exact softmax in [src/irec/loss/logq.py](./src/irec/loss/logq.py) (`MCLSRLogqInBatchLoss` with the three forms, `FpsLogQLoss`, `FullSoftmaxLoss`), the model in [src/irec/models/mclsr.py](./src/irec/models/mclsr.py), the confirmatory runner [scripts/train_confirmatory.py](./scripts/train_confirmatory.py), and a hundred-line independent replication of the headline effect with no framework code, [scripts/indep_check_beauty.py](./scripts/indep_check_beauty.py).
+- Code: the correction variants and the exact softmax in [src/irec/loss/logq.py](./src/irec/loss/logq.py) (`MCLSRLogqInBatchLoss` with the three forms, `FpsLogQLoss`, `FullSoftmaxLoss`), the model in [src/irec/models/mclsr.py](./src/irec/models/mclsr.py), the confirmatory runner [scripts/train_confirmatory.py](./scripts/train_confirmatory.py), and two independent replications of the headline effect with no framework code, [scripts/indep_check_beauty.py](./scripts/indep_check_beauty.py) and [scripts/indep_check_clothing.py](./scripts/indep_check_clothing.py).
 
 > **Attribution.** IRec is a shared research framework developed by our team (started at the ITMO CT Machine Learning Lab); this repository is my working copy. The from-scratch MCLSR reimplementation and the logQ study here are my own contribution.
 
