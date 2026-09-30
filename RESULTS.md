@@ -16,6 +16,15 @@ the config, count tables and checkpoints (`results/confirm/*.json`). Seeds 1, 2,
 tables show the mean, per-seed values are in `RUN_INDEX.md`. The CDs & Vinyl runs followed a plan written down before the first run (7 arms,
 seeds 1–3, hypotheses and decision rules). Seed-to-seed std: 0.0004–0.0019 ndcg@20, 0.001–0.008
 recall@1000; single-run differences below ~0.002 ndcg@20 are not interpreted.
+The two columns of every table come from two checkpoints of the same run: ndcg@20 from the
+checkpoint selected on validation ndcg@20, recall@1000 from the one selected on validation
+recall@1000. Against a single-checkpoint protocol this raises the absolute columns by about
+0.9 % (ndcg@20) and 0.6 % (recall@1000), uniformly across arms; no pairwise comparison in this
+document changes sign under either protocol (per-run reports carry both checkpoints).
+Training inputs hold at most 19 items (a 20-item ladder line loses its last item to the target)
+while evaluation histories hold up to 20, so the 20th position embedding is never trained;
+re-evaluating the CDs & Vinyl checkpoints with 19-item histories moves ndcg@20 by ≤ 0.0004 and
+recall@1000 by ≤ 0.0015 (arms 02 and 03, 3 seeds), below seed noise.
 Two runs of one seed with deterministic flags give bit-identical weights for the
 no-graph configurations; graph configurations drift by ~1e-6 in the loss even with the
 flags (sparse CUDA kernels), and without the flags the same seed drifts by ±0.0005 ndcg@20.
@@ -52,7 +61,7 @@ flags (sparse CUDA kernels), and without the flags the same seed drifts by ±0.0
   and +0.0148 / +0.0122 (Toys) without / with the graph — additive; the graph alone does
   not fix the popularity bias (+0.0007 / +0.0027 ndcg@20) and adds tail recall only
   (+0.03…+0.04).
-- **Correction on the alignment loss L_IL (03→04) hurts, dataset-dependently:**
+- **Correction on the alignment loss L_IL (03→04) hurts, dataset-dependently** (this is the negatives-only form; correcting the positive as well, as in Yi et al., would cancel a flat q exactly and leave L_IL almost unchanged — the harm is specific to the form that leaves the positive uncorrected):
   −0.0059 / −0.011 on Beauty (every seed, CI [−0.0083, −0.0020]), −0.0012 / −0.014 on
   Clothing (tail on every seed), −0.0008 / −0.002 on Toys (sign on 3/3 seeds, size within
   noise). Peaks arrive ~2× later (Beauty epoch 47–49 vs 19–25).
@@ -71,6 +80,7 @@ flags (sparse CUDA kernels), and without the flags the same seed drifts by ±0.0
 | Weight of L_IL | β = 0.25 † / 0.5 / 1 / 2 † | 0.0569 / 0.0580 / 0.0567 / 0.0532 | plateau 0.25–1 (β = 0.5: +0.0014 on validation on every seed, +0.0013 test, tail equal); β = 2 hurts; the paper's β = 1 is kept |
 | Interest mix α | 0.25 / 0.5 / 0.75 / 0.9 † | 0.0543 / 0.0567 / 0.0579 / 0.0585 | plateau 0.5–0.9 on validation; α = 0.5 kept |
 | Feature-level weight γ | 0.05 / 0.1 / 0.2 † / 0.5 | 0.0563 / 0.0565 / 0.0557 / 0.0563 | no effect (γ = 0.5 below base on validation) |
+| Correction on L_IC with the candidate-exact q (context-inclusion table, `ctxq_v2`) † | 10 vs 09 | 0.0563 vs 0.0535 | no effect either way; the other L_IC-correction arms use the all-event item table, which is not the distribution the L_IC candidates are drawn from (log q error up to 3.7 nats), so this row is the one that carries the L_IC claim |
 | logQ on the feature-level losses L_UC / L_IC | 06 vs 05 (paper model) | 0.0557 / 0.540 vs 0.0573 / 0.539 | no effect: per-seed −0.0018 / −0.0045 / +0.0014 ndcg@20, tail equal; CDs & Vinyl (3 seeds) 0.0498 vs 0.0494, +0.0004 / −0.0009 |
 | Form of the correction | negatives-only (ours) / standard (Yi et al.) / corrected (Khrylchenko, Baikalov et al., RecSys'25) | 0.0556 / 0.0558 / 0.0546; SASRec 0.0631 / — / 0.0632 | equal within noise, both encoders; the negatives-only and corrected forms were checked line by line against the authors' public implementation (positive outside the denominator, Q′(d) = q(d)/(1 − q(p)), weight sg(1 − P̂) with the 1/n mean in P̂) |
 | Mixed negatives (MNS, +128 uniform) † | three forms | 0.0572 / 0.0546 / 0.0560 | = in-batch + logQ |
