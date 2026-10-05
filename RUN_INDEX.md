@@ -59,7 +59,7 @@ One row per arm and dataset. **Seeds** columns: confirmatory runs (`scripts/trai
 | [sasrec_inbatch_l00](configs/train/clothing64/sasrec_inbatch_l00.json) | SASRec, in-batch sampled softmax, no correction | 0.0085 ± 0.0004 / 0.2105 ± 0.0060 | 1,2,3 | 0.0085 / — | 4 |
 | [sasrec_inbatch_logq](configs/train/clothing64/sasrec_inbatch_logq.json) | SASRec, in-batch + logQ | 0.0178 ± 0.0012 / 0.3004 ± 0.0035 | 1,2,3 | 0.0155 / — | 4 |
 
-## Beauty — 82 arms
+## Beauty — 87 arms
 
 | arm (config) | what it is | seeds: ndcg@20 / recall@1000 | seeds | single run (seed 42): ndcg@20 / recall@1000 | runs |
 |---|---|---|---|---|---|
@@ -96,6 +96,7 @@ One row per arm and dataset. **Seeds** columns: confirmatory runs (`scripts/trai
 | [03_graph_cosine_t10](configs/train/beauty/03_graph_cosine_t10.json) | 03 with cosine L_IL, τ=1 | — | — | 0.0547 / 0.5308 | 1 |
 | [03_graph_depth0](configs/train/beauty/03_graph_depth0.json) | 03 with no graph propagation (raw user / item embeddings feed the general-interest branch) | 0.0575 ± 0.0016 / 0.5146 ± 0.0021 | 1,2,3 | — | 3 |
 | [03_graph_depth1](configs/train/beauty/03_graph_depth1.json) | 03 with one propagation layer | 0.0470 ± 0.0000 / 0.4975 ± 0.0000 | 1 | — | 1 |
+| [03_graph_depth1_mean](configs/train/beauty/03_graph_depth1_mean.json) | 03 with one propagation layer read as the LightGCN layer mean | 0.0555 ± 0.0000 / 0.5071 ± 0.0000 | 1 | — | 1 |
 | [03_graph_euclid_t05](configs/train/beauty/03_graph_euclid_t05.json) | 03 with squared-euclidean L_IL, τ=0.5 | — | — | 0.0589 / 0.5398 | 1 |
 | [03_graph_euclid_t1](configs/train/beauty/03_graph_euclid_t1.json) | 03 with squared-euclidean L_IL, τ=1 | — | — | 0.0574 / 0.5405 | 1 |
 | [03_graph_euclid_t20](configs/train/beauty/03_graph_euclid_t20.json) | 03 with squared-euclidean L_IL, τ=2 | — | — | 0.0599 / 0.5367 | 1 |
@@ -120,7 +121,11 @@ One row per arm and dataset. **Seeds** columns: confirmatory runs (`scripts/trai
 | [04_graph_logq_lil_uniformq](configs/train/beauty/04_graph_logq_lil_uniformq.json) | 04 with a constant user-count table (pure margin, no popularity information) | 0.0524 ± 0.0014 / 0.5276 ± 0.0026 | 1,2,3 | 0.0521 / 0.5206 | 4 |
 | [05_full_baseline](configs/train/beauty/05_full_baseline.json) | paper model: graph + L_IL + L_UC + L_IC (γ=0.05); logQ on L_P | 0.0573 ± 0.0012 / 0.5390 ± 0.0033 | 1,2,3 | 0.0563 / 0.5344 | 4 |
 | [05_full_l00](configs/train/beauty/05_full_l00.json) | paper model (graph + L_IL + L_UC + L_IC) without the correction (λ=0) | 0.0374 ± 0.0005 / 0.4724 ± 0.0081 | 1,2,3 | — | 3 |
+| [05_full_l00_depth0](configs/train/beauty/05_full_l00_depth0.json) | paper model without the correction and without graph propagation (MCLSR-G of the paper) | 0.0355 ± 0.0000 / 0.4413 ± 0.0000 | 1 | — | 1 |
+| [05_full_l00_gpucheck](configs/train/beauty/05_full_l00_gpucheck.json) | 05_full_l00 re-run on a different GPU model, same seed (hardware reproducibility check) | 0.0408 ± 0.0000 / 0.4721 ± 0.0000 | 1 | — | 1 |
+| [05_full_l00_paper](configs/train/beauty/05_full_l00_paper.json) | paper model in the paper's literal form (cosine, eq. 8/11 scheme, shared projector), no correction (λ=0) | 0.0424 ± 0.0017 / 0.4782 ± 0.0024 | 1,2,3 | — | 3 |
 | [05_full_mean](configs/train/beauty/05_full_mean.json) | paper model with the LightGCN layer mean instead of the last layer | 0.0561 ± 0.0000 / 0.5223 ± 0.0000 | 1 | — | 1 |
+| [05_full_paper](configs/train/beauty/05_full_paper.json) | paper model in the paper's literal form (cosine, eq. 8/11 scheme, shared projector), logQ on L_P | 0.0562 ± 0.0010 / 0.5321 ± 0.0020 | 1,2,3 | — | 3 |
 | [05_full_uw](configs/train/beauty/05_full_uw.json) | paper model with learned (uncertainty) loss weights | — | — | 0.0437 / 0.5029 | 1 |
 | [05_full_w01](configs/train/beauty/05_full_w01.json) | paper model with γ=0.1 | — | — | 0.0565 / 0.5485 | 1 |
 | [05_full_w02](configs/train/beauty/05_full_w02.json) | paper model with γ=0.2 | — | — | 0.0557 / 0.5348 | 1 |
@@ -180,4 +185,4 @@ One row per arm and dataset. **Seeds** columns: confirmatory runs (`scripts/trai
 | [sasrec_ladder_l00](configs/train/toys/sasrec_ladder_l00.json) | SASRec λ=0 on the MCLSR prefix ladder (last-position query) | — | — | 0.0283 / — | 1 |
 | [sasrec_ladder_logq](configs/train/toys/sasrec_ladder_logq.json) | SASRec λ=1 on the prefix ladder | — | — | 0.0405 / — | 1 |
 
-Total training runs indexed: 304. Re-run summaries: `python scripts/summarize_runs.py --pattern "<prefix>_*" --report eval/ndcg@20 eval/recall@1000` over `tensorboard_logs/`, and `python scripts/summarize_seeds.py --prefix <beauty|toys|clothing64>`.
+Total training runs indexed: 313. Re-run summaries: `python scripts/summarize_runs.py --pattern "<prefix>_*" --report eval/ndcg@20 eval/recall@1000` over `tensorboard_logs/`, and `python scripts/summarize_seeds.py --prefix <beauty|toys|clothing64>`.

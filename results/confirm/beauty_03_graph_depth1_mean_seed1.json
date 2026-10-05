@@ -1,0 +1,72 @@
+{
+  "experiment": "beauty_mclsr_grid_03_graph_depth1_mean_Beauty_confirm_seed1",
+  "params": "configs/train/beauty/03_graph_depth1_mean.json",
+  "params_sha256": "79c5f6d4ba9345d1625701f4156cb8c8c0765036523757aff2cc3e0c5c7344c2",
+  "artifact_sha256": {
+    "./data/Beauty/item_counts.pkl": "5c9dd832890c569683f2cf6c5a0d34af6acbae03bd7cfcd320f372c5c5cc6aad"
+  },
+  "seed": 1,
+  "step_limit": 250000,
+  "git_commit": "3bc5dea67176d1d7299c2f66e65de25d79590403",
+  "git_dirty": true,
+  "torch_version": "2.4.1+cu121",
+  "protocol": "one test evaluation per pre-registered validation-selected checkpoint; shared no-progress patience across selection metrics",
+  "results": {
+    "validation/ndcg@20": {
+      "selection_metric": "validation/ndcg@20",
+      "validation_value": 0.06094553536520554,
+      "step": 22656,
+      "epoch": 22,
+      "checkpoint": "./checkpoints/beauty_mclsr_grid_03_graph_depth1_mean_Beauty_confirm_seed1_best_validation_ndcg_at_20.pth",
+      "checkpoint_sha256": "38311269bf53fdc8671ed06fa18e4c3995592d3431677a8aeb69aabb5414eb61",
+      "test": {
+        "ndcg@5": 0.02937739846372796,
+        "ndcg@10": 0.04153461145819113,
+        "ndcg@20": 0.05553517687797653,
+        "ndcg@50": 0.07064471752863673,
+        "ndcg@100": 0.0824787609285817,
+        "ndcg@1000": 0.12181068053589797,
+        "recall@5": 0.04329069486994481,
+        "recall@10": 0.07551971794167266,
+        "recall@20": 0.12096451204744736,
+        "recall@50": 0.18181128852039402,
+        "recall@100": 0.24068331850337088,
+        "recall@1000": 0.5079680540710089,
+        "hit@20": 0.1895395619132767,
+        "hit@50": 0.2673223066607063,
+        "hit@100": 0.3451050514081359,
+        "hit@1000": 0.6410371032632991,
+        "comirec-ndcg@20": 0.07705184851286398,
+        "comirec-ndcg@50": 0.09217174359874955
+      }
+    },
+    "validation/recall@1000": {
+      "selection_metric": "validation/recall@1000",
+      "validation_value": 0.5147113183276705,
+      "step": 22720,
+      "epoch": 22,
+      "checkpoint": "./checkpoints/beauty_mclsr_grid_03_graph_depth1_mean_Beauty_confirm_seed1_best_validation_recall_at_1000.pth",
+      "checkpoint_sha256": "6d6e36c5d8266a87465856db47efcea93eb43aadbfe64a74d6424be778479dca",
+      "test": {
+        "ndcg@5": 0.029025672720541205,
+        "ndcg@10": 0.041504191290495596,
+        "ndcg@20": 0.05540397644182855,
+        "ndcg@50": 0.07055857461020783,
+        "ndcg@100": 0.08273884792432062,
+        "ndcg@1000": 0.12168520752375526,
+        "recall@5": 0.04228827008243965,
+        "recall@10": 0.07508643333053663,
+        "recall@20": 0.12034650642722912,
+        "recall@50": 0.18159436566899226,
+        "recall@100": 0.24205591465326948,
+        "recall@1000": 0.5070918743258402,
+        "hit@20": 0.18819848010728654,
+        "hit@50": 0.2691104157353599,
+        "hit@100": 0.34644613321412604,
+        "hit@1000": 0.6379079123826553,
+        "comirec-ndcg@20": 0.07680014339365168,
+        "comirec-ndcg@50": 0.092616977772118
+      }
+    }
+  }
+}

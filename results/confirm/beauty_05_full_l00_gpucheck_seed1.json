@@ -1,0 +1,72 @@
+{
+  "experiment": "beauty_mclsr_grid_05_full_l00_gpucheck_Beauty_confirm_seed1",
+  "params": "configs/train/beauty/05_full_l00_gpucheck.json",
+  "params_sha256": "d5de546dfa08e042811651bceecd073cdea1307166331736a538df0bfdff0e5e",
+  "artifact_sha256": {
+    "./data/Beauty/item_counts.pkl": "5c9dd832890c569683f2cf6c5a0d34af6acbae03bd7cfcd320f372c5c5cc6aad"
+  },
+  "seed": 1,
+  "step_limit": 250000,
+  "git_commit": "3bc5dea67176d1d7299c2f66e65de25d79590403",
+  "git_dirty": true,
+  "torch_version": "2.4.1+cu121",
+  "protocol": "one test evaluation per pre-registered validation-selected checkpoint; shared no-progress patience across selection metrics",
+  "results": {
+    "validation/ndcg@20": {
+      "selection_metric": "validation/ndcg@20",
+      "validation_value": 0.045803472592973536,
+      "step": 22656,
+      "epoch": 22,
+      "checkpoint": "./checkpoints/beauty_mclsr_grid_05_full_l00_gpucheck_Beauty_confirm_seed1_best_validation_ndcg_at_20.pth",
+      "checkpoint_sha256": "4d594f0323404f2d26a0500c7262bc1559ee1227432e8515d1478540f76e7fd5",
+      "test": {
+        "ndcg@5": 0.019477653913749452,
+        "ndcg@10": 0.028741204031194807,
+        "ndcg@20": 0.04076043697582807,
+        "ndcg@50": 0.05558892641221513,
+        "ndcg@100": 0.06805845756861426,
+        "ndcg@1000": 0.10634031210296192,
+        "recall@5": 0.028517153144055944,
+        "recall@10": 0.05294382936876162,
+        "recall@20": 0.09130122593013261,
+        "recall@50": 0.15049717187961403,
+        "recall@100": 0.21236930226022024,
+        "recall@1000": 0.4705211873506402,
+        "hit@20": 0.15020116227089853,
+        "hit@50": 0.2253017434063478,
+        "hit@100": 0.29995529727313364,
+        "hit@1000": 0.5896289673670094,
+        "comirec-ndcg@20": 0.05753034513791758,
+        "comirec-ndcg@50": 0.07283071012543843
+      }
+    },
+    "validation/recall@1000": {
+      "selection_metric": "validation/recall@1000",
+      "validation_value": 0.4868149575585756,
+      "step": 19584,
+      "epoch": 19,
+      "checkpoint": "./checkpoints/beauty_mclsr_grid_05_full_l00_gpucheck_Beauty_confirm_seed1_best_validation_recall_at_1000.pth",
+      "checkpoint_sha256": "7420aba1096efbeeef9530e2e12727e7ec980cc05f1327a838d22c586338f888",
+      "test": {
+        "ndcg@5": 0.019518393082281923,
+        "ndcg@10": 0.02901298888477301,
+        "ndcg@20": 0.04031398940863064,
+        "ndcg@50": 0.05615678808960362,
+        "ndcg@100": 0.06757751452184091,
+        "ndcg@1000": 0.10634552533115907,
+        "recall@5": 0.027174000499647646,
+        "recall@10": 0.05233518871868834,
+        "recall@20": 0.08933976763225743,
+        "recall@50": 0.15368629229630965,
+        "recall@100": 0.20995474692349142,
+        "recall@1000": 0.4720668179692037,
+        "hit@20": 0.1439427805096111,
+        "hit@50": 0.2248547161376844,
+        "hit@100": 0.29280286097451946,
+        "hit@1000": 0.5936522127849799,
+        "comirec-ndcg@20": 0.0565136062829794,
+        "comirec-ndcg@50": 0.07252805556470814
+      }
+    }
+  }
+}
