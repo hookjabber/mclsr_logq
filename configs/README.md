@@ -47,7 +47,7 @@ Losses (`loss.losses[]`, combined by `composite` with `weight` per term):
 | `full_softmax` | exact full-catalogue softmax anchor | `queries_prefix`, `table_prefix`, `positive_ids_prefix` |
 | `sampled_softmax`, `mclsr_logq_special` | explicit sampled negatives (uniform / popular), with or without correction | `negative_prefix`, `path_to_item_counts`, `logq_lambda` |
 | `fps` | two-view contrastive (L_IL, L_UC, L_IC) | `temperature` (τ), `scheme` (`symmetric` default / `paper` = eq. 8 and 11 / `cross_only`), `normalize_embeddings` (cosine), `similarity` (`dot` / `euclidean`) |
-| `fps_logq` | the correction on a two-view contrastive loss | `fps` keys + `logq_lambda`, `path_to_counts`, `ids_prefix`, `logq_probability_mode`, `leave_own_out`, `center_log_q` |
+| `fps_logq` | the correction on a two-view contrastive loss | `fps` keys (`scheme` = `symmetric` / `paper` / `cross_only`) + `logq_lambda`, `path_to_counts`, `ids_prefix`, `logq_probability_mode`, `leave_own_out`, `center_log_q` |
 | `matched_contrastive_full_softmax`, `contrastive_full_softmax` | full-catalogue contrastive anchors | `*_table_prefix`, `ids_prefix`, `temperature`, `path_to_train_presence` |
 
 Protocol (`callback`, `best_metric`, `epochs_threshold`, `train_steps_num`): validation every

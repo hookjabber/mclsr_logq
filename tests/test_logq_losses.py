@@ -23,6 +23,7 @@ from irec.loss import (  # noqa: E402
     ContrastiveFullSoftmaxLoss,
     FpsLogQLoss,
     InBatchLogQLoss,
+    FpsLoss,
 )
 
 B = 8
@@ -744,3 +745,41 @@ if __name__ == '__main__':
             fn()
             print(f'{name}: OK')
     print('\nALL TESTS PASSED')
+
+
+def test_fps_logq_paper_scheme_matches_manual_and_fps():
+    """scheme='paper' in FpsLogQLoss: lambda = 0 equals FpsLoss(scheme='paper'); lambda = 1 corrects every
+    candidate (both views) by its in-batch sample log q, keeps the paired positive uncorrected, masks the
+    anchor's own copy and same-id false negatives, and averages over the B anchors without the /2."""
+    torch.manual_seed(21)
+    path = _counts_path()
+    f = torch.randn(B, D, requires_grad=True)
+    s = torch.randn(B, D)
+    kwargs = dict(
+        fst_embeddings_prefix='f',
+        snd_embeddings_prefix='s',
+        ids_prefix='pid',
+        path_to_counts=path,
+        tau=0.5,
+        scheme='paper',
+    )
+    zero = FpsLogQLoss(logq_lambda=0.0, mask_false_negatives=False, **kwargs)({'f': f, 's': s, 'pid': POS_IDS})
+    plain = FpsLoss('f', 's', tau=0.5, scheme='paper')({'f': f.detach(), 's': s})
+    assert torch.allclose(zero, plain, atol=1e-5), (zero.item(), plain.item())
+    got = FpsLogQLoss(logq_lambda=1.0, **kwargs)({'f': f, 's': s, 'pid': POS_IDS})
+    prob = _probs()
+    q_in = 1 - (1 - prob[POS_IDS]) ** (B - 1)  # inbatch_negative mode: seen at least once among B-1 draws
+    cand = torch.cat((s, f.detach()), 0).double()
+    scores = f.detach().double() @ cand.T / 0.5
+    cand_ids = torch.cat((POS_IDS, POS_IDS))
+    scores = scores - torch.log(q_in.double())[cand_ids][None, :]
+    for i in range(B):
+        scores[i, i] += torch.log(q_in.double())[POS_IDS[i]]  # the paired positive (snd_i) is observed, not sampled
+        scores[i, B + i] = -1e12  # own fst copy
+        for j in range(2 * B):
+            if j != i and j != B + i and cand_ids[j] == POS_IDS[i]:
+                scores[i, j] = -1e12
+    want = torch.nn.functional.cross_entropy(scores.float(), torch.arange(B))
+    assert torch.allclose(got, want, atol=1e-4), (got.item(), want.item())
+    got.backward()
+    assert torch.isfinite(f.grad).all()

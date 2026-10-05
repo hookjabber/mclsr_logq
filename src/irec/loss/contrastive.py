@@ -233,7 +233,7 @@ class FpsLogQLoss(TorchLoss, config_name='fps_logq'):
         self._scheme = scheme
         self._output_prefix = output_prefix
 
-        if self._scheme not in ('symmetric', 'cross_only'):
+        if self._scheme not in ('symmetric', 'cross_only', 'paper'):
             raise ValueError(f'Unknown fps_logq scheme `{self._scheme}`')
 
         if self._leave_own_out and not self._mask_false_negatives:
@@ -534,7 +534,13 @@ class FpsLogQLoss(TorchLoss, config_name='fps_logq'):
 
         all_scores = all_scores.masked_fill(invalid_mask, -1e12)
 
-        loss = self._loss_function(all_scores, positive_indices) / 2
+        if self._scheme == 'paper':
+            # paper eq. 8 / 11: anchors = fst view only; candidates = every snd row plus the other fst
+            # rows = the first B rows of the symmetric table with the own-copy diagonal masked;
+            # same corrections and false-negative masks, mean over B anchors (no /2)
+            loss = self._loss_function(all_scores[:batch_size], positive_indices[:batch_size])
+        else:
+            loss = self._loss_function(all_scores, positive_indices) / 2
 
         if self._output_prefix is not None:
             inputs[self._output_prefix] = loss.cpu().item()
