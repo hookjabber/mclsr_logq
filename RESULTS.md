@@ -90,7 +90,8 @@ flags (sparse CUDA kernels), and without the flags the same seed drifts by ±0.0
 | Remedies for L_IL † | centred log q; cosine τ 0.1/0.5/1; euclid τ 0.5/1/2 (± logQ) | 0.0564; 0.0569/0.0577/0.0547; 0.0589/0.0574/0.0599 (logQ: 0.0563/0.0550/0.0540) | remove the harm, never beat the uncorrected base; euclid + logQ worse at every τ |
 | Learned loss weights † | Kendall et al. uncertainty weighting | 0.0437 | weights drift to the likelihood optimum, not the ranking one |
 | Implementation details † | shared L_IL projector; paper-faithful (shared projector + cosine + paper scheme) | 0.0565; 0.0569 | no difference to 03 |
-| Graph propagation depth | 0 / 1 / 2 layers (03 = 2) | 0.0575 / 0.514 (3 seeds); 0.0470 / 0.498 †; 0.0567 / 0.540 — CDs & Vinyl †: depth 0 0.0509 / 0.500 vs depth 2 0.0497 / 0.508 | propagation buys tail recall (+0.025 on every Beauty seed, +0.008 on CDs & Vinyl) at no top-20 cost; one layer is worse than none — in a bipartite graph an odd layer hands users a mix of *item* embeddings, which the attention of eq. 5 cannot use, so the even (last) layer is the right output |
+| Paper's literal contrastive form (cosine, eq. 8 / 11 scheme, shared projector; `05_full_l00_paper` / `05_full_paper`) | λ = 0 / λ = 1 | 0.0424 ± 0.0017 / 0.478 ; 0.0562 ± 0.0010 / 0.532 | the correction adds +0.0138 [+0.0106, +0.0170] ndcg@20 and +0.055 recall@1000 in the paper's own form (p = 0.0001); the cosine form starts a little higher without the correction (+0.0050 over the dot form, p = 0.0003) and lands at the same point with it (−0.0011, p = 0.36) |
+| Graph propagation depth | 0 / 1 / 2 layers (03 = 2) | 0.0575 / 0.514 (3 seeds); 0.0470 / 0.498 †; 0.0567 / 0.540 — CDs & Vinyl †: depth 0 0.0509 / 0.500 vs depth 2 0.0497 / 0.508 | propagation buys tail recall (+0.025 on every Beauty seed, +0.008 on CDs & Vinyl) at no top-20 cost; one layer is worse than none — in a bipartite graph an odd layer hands users a mix of *item* embeddings, which the attention of eq. 5 cannot use, so the even (last) layer is the right output; with the LightGCN layer mean the one-layer model recovers to 0.0555 / 0.508 † (≈ depth 0), so that drop is a property of reading the odd layer alone. The large gain from propagation that the paper's Table 3 reports at @50 does not appear here: depth 0 and depth 2 give 18.7 and 18.8 recall@50 on Beauty (3 seeds) |
 | LightGCN layer combination † | last layer (03, 05) vs mean of layers 0..2 | 03: 0.0555 / 0.539 vs 0.0552 / 0.524; 05: 0.0568 / 0.535 vs 0.0561 / 0.522 (seed 1) | the mean is worse on the tail on both models (it mixes in the odd layer); the last layer is kept |
 | Graph edge dropout † | 0.3 (03) vs 0 | 0.0555 / 0.539 vs 0.0546 / 0.532 (seed 1); with the layer mean 0.0532 / 0.510 | no gain from removing it; kept at 0.3 |
 
@@ -99,8 +100,11 @@ flags (sparse CUDA kernels), and without the flags the same seed drifts by ±0.0
 Before any correction is applied, the model trained here with the paper's losses
 (graph + L_IL + L_UC + L_IC; L_P as a sampled softmax without correction, λ = 0) lands on the
 numbers the MCLSR paper reports for the same data (its Table 2; percentages, mean of 3 seeds
-here). The paper's eq. 14 writes L_P as a softmax over a sampled subset of the catalogue without
-stating the sampler or any correction; here the sample is the batch (127 in-batch negatives). The datasets
+here). The paper's eq. 14 writes L_P as a softmax over a sampled subset of the catalogue; its §5.1 sets
+the number of sampled negatives to 1280 but states neither their distribution nor any correction;
+here the sample is the batch (127 in-batch negatives). With any of the estimators of A.2 that carry
+no popularity bias (uniform 1280, in-batch + logQ, exact softmax) the same implementation lands
+20–30 % above the paper's numbers, so the paper-level numbers correspond to the uncorrected in-batch loss. The datasets
 are the same ones: the paper's Table 1 lists 39,387 users / 23,034 items for Clothing and
 75,258 / 64,444 for "Toys", which are exactly the user and item counts of our Clothing and of the
 CDs & Vinyl split (the paper's "Toys" statistics are those of CDs & Vinyl).
@@ -124,6 +128,24 @@ paper's own model trained by this code (λ = 0, 3 seeds) comes out above the pap
 paper-level baselines. (The Clothing column of the paper's Table 3 duplicates its Gowalla numbers
 and is not usable for comparison.)
 
+Data provenance. The split files are rebuilt from the raw data by `scripts/prepare_dataset.py`
+and are identical to the files of the study: Clothing from the Amazon ratings csv (the 5-core
+statistics equal Table 1 of the paper: 39 387 users, 23 033 items, 278 677 actions), Beauty from
+its 5-core sequence file; CDs & Vinyl inherits the split of the shared framework data, and the
+files follow the same protocol (seed-42 user split, ladder of cropped sequences, `int(0.8·len)`
+history/target cut). CDs & Vinyl ids are 0-based as inherited, so user 0 shares the padding row
+of the user table and item 0 (4 occurrences in the training sequences) is never ranked at
+inference — a negligible asymmetry, kept to leave the reported runs untouched.
+
+Hardware. One arm (`05_full_l00`, seed 1) was re-run unchanged on a different GPU model
+(`05_full_l00_gpucheck`: GTX 1080 instead of RTX 3080). The two runs part from the first update
+(different kernels, different floating-point reductions), their validation curves differ by
++0.0007 on average and at most 0.0035 at any evaluation point, the validation-selected checkpoint
+falls on a different epoch (22 instead of 11) on the flat plateau of this uncorrected arm, and the
+test numbers differ by +0.0028 ndcg@20 / +0.0115 recall@1000 — the size of seed-to-seed
+differences and an order of magnitude below the effects of this study. Every comparison in Part A
+is therefore made between runs on the same GPU model; the only exception is marked in A.4.
+
 ### A.3 Component ablation (Beauty, 3 seeds; logQ on L_P throughout)
 
 | arm | user–item graph | L_IL | user–user graph (L_UC) | item–item graph (L_IC) | test ndcg@20 | recall@1000 |
@@ -138,7 +160,10 @@ and is not usable for comparison.)
 
 The user–user and item–item graphs and their feature-level contrastive losses contribute nothing (every paired difference within noise), on CDs & Vinyl as well (3 seeds: full model 0.0494 / 0.506, minus user–user 0.0494 / 0.505, minus item–item 0.0488 / 0.505, vs 0.0497 / 0.508 without them). Removing the alignment loss L_IL costs −0.0057 / −0.049 on every seed even with both feature graphs in place (CDs & Vinyl, 3 seeds: 0.0404 / 0.449, and 0.0390 / 0.445 for the graph alone — below the model without any graph): the only working component of the graph branch is the user–item graph aligned to the sequential interest through L_IL, and its contribution is tail recall.
 
-The feature graphs do not help without the correction either. The paper's own model (graph + L_IL + L_UC + L_IC) trained with the uncorrected retrieval loss (λ = 0) scores 0.0374 / 0.472 on Beauty against 0.0393 / 0.474 for the same model without the feature graphs (per-seed ndcg@20 differences −0.0022 / −0.0010 / −0.0024), and 0.0385 / 0.447 against 0.0376 / 0.443 on CDs & Vinyl (+0.0018 / +0.0005 / +0.0007 — a consistent but tiny gain that disappears once the retrieval loss is corrected: −0.0004 at λ = 1). So the feature-level contrastive mechanism, which the MCLSR paper reports as important (its "MCLSR-F" ablation), does not reproduce in this protocol under either loss.
+The feature graphs do not help without the correction either. The paper's own model (graph + L_IL + L_UC + L_IC) trained with the uncorrected retrieval loss (λ = 0) scores 0.0374 / 0.472 on Beauty against 0.0393 / 0.474 for the same model without the feature graphs (per-seed ndcg@20 differences −0.0022 / −0.0010 / −0.0024), and 0.0385 / 0.447 against 0.0376 / 0.443 on CDs & Vinyl (+0.0018 / +0.0005 / +0.0007 — a consistent but tiny gain that disappears once the retrieval loss is corrected: −0.0004 at λ = 1). So the feature-level contrastive mechanism, which the MCLSR paper reports as important (its "MCLSR-F" ablation), does not reproduce in this protocol under either loss. Removing the propagation instead (depth 0) from the paper's model under its own
+objective (λ = 0, Beauty, one seed) gives 0.0355 / 0.440 against 0.0374 / 0.464 for the propagated
+model — the direction of the paper's "MCLSR-G" ablation at about a third of its reported size
+(−6…−7 % at @50 here against −15…−24 % in its Table 3), and no better than the model without any graph.
 
 **Why the feature graphs cannot contribute** (`scripts/diagnose_feature_graphs.py`, paper model,
 seed-1 checkpoint). (1) By construction they carry nothing the user–item graph does not: the
@@ -169,6 +194,36 @@ form and 0.0132 ± 0.0005 with the corrected form (3 seeds; +18 % and +28 %, pos
 seed; R@20 0.019 → 0.025 / 0.027). These numbers are on that code's single-target protocol and are
 only comparable with each other. Data checks (`scripts/check_split_leakage.py`): train/valid/test users
 are disjoint; count tables and graphs are reconstructed exactly from the train files.
+
+### A.4 Uncertainty of the headline comparisons (paired per-user bootstrap, Beauty)
+
+The validation-selected checkpoints of an arm and of its baseline are scored on the same 2 237
+test users; the per-user differences are pooled over the three seeds. The interval is a user
+bootstrap (10 000 draws, all seeds of a user resampled together), the p-value a sign-flip
+permutation test (`scripts/paired_bootstrap.py`; full table and JSON in
+[results/stats/](./results/stats/)).
+
+| arm − baseline | Δ ndcg@20 [95 % CI] | p | Δ recall@1000 [95 % CI] | p |
+|---|---|---|---|---|
+| logQ on L_P, no graph (02 − 01) | +0.0169 [+0.0136, +0.0203] | 0.0001 | +0.0750 [+0.0636, +0.0865] | 0.0001 |
+| logQ on L_P, with graph (03 − 03_l00) | +0.0174 [+0.0142, +0.0208] | 0.0001 | +0.0737 [+0.0637, +0.0837] | 0.0001 |
+| logQ on L_P, full model (05 − 05_l00) | +0.0199 [+0.0168, +0.0231] | 0.0001 | +0.0763 [+0.0659, +0.0866] | 0.0001 |
+| logQ on L_P, SASRec (logq − l00) | +0.0152 [+0.0118, +0.0188] | 0.0001 | +0.0929 [+0.0816, +0.1042] | 0.0001 |
+| logQ also on L_IL (04 − 03) | −0.0059 [−0.0079, −0.0040] | 0.0001 | −0.0099 [−0.0164, −0.0033] | 0.0038 |
+| exact full softmax − in-batch + logQ (14 − 02) | +0.0021 [−0.0007, +0.0049] | 0.13 | +0.0013 [−0.0068, +0.0094] | 0.75 |
+| user–user / item–item graphs (05 − 03) | +0.0006 [−0.0007, +0.0019] | 0.36 | −0.0001 [−0.0055, +0.0052] | 0.97 |
+| logQ on L_P, paper's literal form (05_paper − 05_l00_paper) | +0.0138 [+0.0106, +0.0170] | 0.0001 | +0.0550 [+0.0455, +0.0649] | 0.0001 |
+| paper's form vs dot form, no correction (05_l00_paper − 05_l00) ‡ | +0.0050 [+0.0023, +0.0078] | 0.0003 | +0.0150 [+0.0059, +0.0243] | 0.0025 |
+| paper's form vs dot form, with correction (05_paper − 05) ‡ | −0.0011 [−0.0036, +0.0013] | 0.36 | −0.0062 [−0.0136, +0.0012] | 0.10 |
+
+‡ hardware-unmatched: the paper-form arms ran on a different GPU model than the dot-form arms (see the hardware note in A.0, where the same arm moved by +0.0028 between GPU models); hardware-matched re-runs of the dot-form arms are in progress and will replace these two rows.
+
+![Paired per-user differences with 95 % bootstrap intervals](./assets/paired_bootstrap_beauty.png)
+
+Every gain of the correction on the retrieval loss and the harm of the correction on L_IL are
+significant on every seed; the exact softmax is statistically indistinguishable from in-batch +
+logQ, and the feature-level graphs add nothing. The gain survives in the paper's own cosine form of
+the contrastive losses (`results/stats/beauty_paper_form_bootstrap.md`).
 
 ## Part B. Clothing exploratory study (July–August 2026, single seed)
 
