@@ -61,6 +61,7 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
         graph_layer_mean=False,
         output_full_contrastive_tables=False,
         eval_top_k=50,
+        use_layernorm=True,
     ):
         super().__init__()
         self._output_full_contrastive_tables = output_full_contrastive_tables
@@ -104,7 +105,9 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
             embedding_dim=embedding_dim,
         )
 
-        self._layernorm = nn.LayerNorm(embedding_dim, eps=layer_norm_eps)
+        # LayerNorm on E_{u,p} is an addition of this implementation, not in the paper; the switch exists for
+        # the arm without any regularisation (default True keeps every reported run unchanged)
+        self._layernorm = nn.LayerNorm(embedding_dim, eps=layer_norm_eps) if use_layernorm else nn.Identity()
         self._dropout = nn.Dropout(dropout)
 
         # Current interest learning
@@ -223,6 +226,7 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
                 False,
             ),
             eval_top_k=config.get('eval_top_k', 50),
+            use_layernorm=config.get('use_layernorm', True),
         )
 
     def _apply_graph_encoder(self, embeddings, graph, use_mean=False):

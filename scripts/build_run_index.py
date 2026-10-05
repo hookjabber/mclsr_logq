@@ -77,6 +77,8 @@ def describe(arm):
         '05_full_paper': "paper model in the paper's literal form (cosine, eq. 8/11 scheme, shared projector), logQ on L_P",
         '03_graph_l00_paper': "03 in the paper's literal form (cosine, eq. 8 scheme, shared projector), no correction (λ=0)",
         '04_graph_logq_lil_paper': "04 in the paper's literal form: logQ on L_P and on the paper-scheme cosine L_IL",
+        '03_graph_paper_raw': "03 in the paper's literal form with no regularisation at all (no LayerNorm, no dropout, no edge dropout), logQ on L_P",
+        '03_graph_l00_paper_raw': "03 in the paper's literal form with no regularisation at all, no correction (λ=0)",
         '02_logq_ideal': "no graph; the principled form of the correction: RecSys'25 corrected variant, exact target-count q, no same-user mask",
         '05_full_ideal': 'paper model with the principled form of the correction (corrected variant, target-count q, no same-user mask)',
         'sasrec_inbatch_ideal': 'SASRec with the principled form of the correction (corrected variant, target-count q)',
