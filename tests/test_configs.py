@@ -4,6 +4,7 @@ Catches a broken config in seconds instead of hours into a run:
 JSON must parse, and every component `type` must exist in the registry.
 Run directly (`python tests/test_configs.py`) or via pytest.
 """
+
 import glob
 import json
 import os
@@ -24,9 +25,9 @@ LEGACY = sorted(glob.glob(os.path.join(ROOT, 'configs/train/legacy/*.json')))
 # every dataset grid (grid/ = Clothing, toys/, beauty/, ...) plus the root configs;
 # only legacy/ is exempt from validation
 MAINTAINED = sorted(
-    path for path in (
-        glob.glob(os.path.join(ROOT, 'configs/train/*/*.json'))
-        + glob.glob(os.path.join(ROOT, 'configs/train/*.json'))
+    path
+    for path in (
+        glob.glob(os.path.join(ROOT, 'configs/train/*/*.json')) + glob.glob(os.path.join(ROOT, 'configs/train/*.json'))
     )
     if path not in LEGACY
 )
@@ -57,31 +58,23 @@ def test_maintained_configs_are_valid():
             assert key in cfg, f'{rel}: missing top-level key `{key}`'
 
         name = cfg['experiment_name']
-        assert name not in seen_names, (
-            f'{rel}: duplicate experiment_name `{name}` (also in {seen_names.get(name)})'
-        )
+        assert name not in seen_names, f'{rel}: duplicate experiment_name `{name}` (also in {seen_names.get(name)})'
         seen_names[name] = rel
 
         assert cfg['dataset']['type'] in BaseDataset._subclasses, (
             f'{rel}: unknown dataset type `{cfg["dataset"]["type"]}`'
         )
-        assert cfg['model']['type'] in BaseModel._subclasses, (
-            f'{rel}: unknown model type `{cfg["model"]["type"]}`'
-        )
+        assert cfg['model']['type'] in BaseModel._subclasses, f'{rel}: unknown model type `{cfg["model"]["type"]}`'
         assert cfg['optimizer']['type'] in BaseOptimizer._subclasses, rel
 
         for dl_cfg in cfg['dataloader'].values():
             assert dl_cfg['type'] in BaseDataloader._subclasses, rel
 
         for loss_cfg in _loss_configs(cfg['loss']):
-            assert loss_cfg['type'] in BaseLoss._subclasses, (
-                f'{rel}: unknown loss type `{loss_cfg["type"]}`'
-            )
+            assert loss_cfg['type'] in BaseLoss._subclasses, f'{rel}: unknown loss type `{loss_cfg["type"]}`'
 
         for cb_cfg in cfg['callback'].get('callbacks', [cfg['callback']]):
-            assert cb_cfg['type'] in BaseCallback._subclasses, (
-                f'{rel}: unknown callback type `{cb_cfg["type"]}`'
-            )
+            assert cb_cfg['type'] in BaseCallback._subclasses, f'{rel}: unknown callback type `{cb_cfg["type"]}`'
             for metric_cfg in cb_cfg.get('metrics', {}).values():
                 assert metric_cfg['type'] in BaseMetric._subclasses, (
                     f'{rel}: unknown metric type `{metric_cfg["type"]}`'

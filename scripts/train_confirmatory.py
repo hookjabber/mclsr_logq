@@ -20,6 +20,7 @@ Usage (one seed per invocation; loop seeds from the shell):
         --seed 1 --select validation/ndcg@20 validation/recall@1000 \
         --output results/confirm/toys_03_graph_seed1.json
 """
+
 import argparse
 import copy
 import hashlib
@@ -55,7 +56,8 @@ def file_sha256(path):
 def git_commit():
     try:
         return subprocess.check_output(
-            ['git', 'rev-parse', 'HEAD'], text=True,
+            ['git', 'rev-parse', 'HEAD'],
+            text=True,
         ).strip()
     except Exception:
         return None
@@ -65,10 +67,12 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--params', required=True)
     parser.add_argument('--seed', type=int, required=True)
-    parser.add_argument('--max-steps', type=int, default=None,
-                        help='hard step limit (falls back to config train_steps_num)')
     parser.add_argument(
-        '--select', nargs='+',
+        '--max-steps', type=int, default=None, help='hard step limit (falls back to config train_steps_num)'
+    )
+    parser.add_argument(
+        '--select',
+        nargs='+',
         default=['validation/ndcg@20', 'validation/recall@1000'],
         help='validation metrics; one best checkpoint is kept per metric',
     )
@@ -88,8 +92,7 @@ def main():
     step_limit = args.max_steps or config.get('train_steps_num')
     if not step_limit:
         raise SystemExit(
-            'confirmatory runs need a hard step limit: set train_steps_num '
-            'in the config or pass --max-steps'
+            'confirmatory runs need a hard step limit: set train_steps_num in the config or pass --max-steps'
         )
 
     # fail before training if a pre-registered --select metric is not even
@@ -104,14 +107,15 @@ def main():
         elif isinstance(node, list):
             for item in node:
                 collect_validation_metrics(item, names)
+
     available_metrics = set()
     collect_validation_metrics(config.get('callback', {}), available_metrics)
     missing = sorted(set(args.select) - available_metrics)
     if available_metrics and missing:
         raise SystemExit(
-            'pre-registered --select metrics are not computed by the '
-            'validation callback: {} (available: {})'.format(
-                missing, sorted(available_metrics),
+            'pre-registered --select metrics are not computed by the validation callback: {} (available: {})'.format(
+                missing,
+                sorted(available_metrics),
             )
         )
 
@@ -127,7 +131,9 @@ def main():
     dataset = BaseDataset.create_from_config(config['dataset'])
     train_sampler, validation_sampler, test_sampler = dataset.get_samplers()
     train_dataloader = BaseDataloader.create_from_config(
-        config['dataloader']['train'], dataset=train_sampler, **dataset.meta,
+        config['dataloader']['train'],
+        dataset=train_sampler,
+        **dataset.meta,
     )
     validation_dataloader = BaseDataloader.create_from_config(
         config['dataloader']['validation'],
@@ -137,9 +143,7 @@ def main():
 
     # the test callback never runs during confirmatory training
     train_callback_config = copy.deepcopy(config['callback'])
-    kept = [
-        cb for cb in train_callback_config['callbacks'] if cb['type'] != 'eval'
-    ]
+    kept = [cb for cb in train_callback_config['callbacks'] if cb['type'] != 'eval']
     if len(kept) == len(train_callback_config['callbacks']):
         raise SystemExit('no eval callback found in the config to strip')
     train_callback_config['callbacks'] = kept
@@ -149,7 +153,8 @@ def main():
     if isinstance(loss_function, torch.nn.Module):
         loss_function = loss_function.to(DEVICE)
     optimizer = BaseOptimizer.create_from_config(
-        config['optimizer'], model=model,
+        config['optimizer'],
+        model=model,
         extra_parameters=list(loss_function.parameters()) if isinstance(loss_function, torch.nn.Module) else [],
     )
     callback = BaseCallback.create_from_config(
@@ -186,19 +191,22 @@ def main():
     missing_after_train = sorted(set(args.select) - set(best_checkpoints))
     if missing_after_train:
         raise SystemExit(
-            'pre-registered --select metrics missing from the validation '
-            'stream: {} (captured: {})'.format(
-                missing_after_train, sorted(best_checkpoints),
+            'pre-registered --select metrics missing from the validation stream: {} (captured: {})'.format(
+                missing_after_train,
+                sorted(best_checkpoints),
             )
         )
 
     # the test dataloader exists only from this point on
     eval_dataloader = BaseDataloader.create_from_config(
-        config['dataloader']['validation'], dataset=test_sampler, **dataset.meta,
+        config['dataloader']['validation'],
+        dataset=test_sampler,
+        **dataset.meta,
     )
 
     inference_config = get_inference_config(config, 'eval')
     artifact_hashes = {}
+
     def collect_paths(node):
         if isinstance(node, dict):
             for key, value in node.items():
@@ -209,12 +217,16 @@ def main():
         elif isinstance(node, list):
             for item in node:
                 collect_paths(item)
+
     collect_paths(config)
 
     try:
-        dirty = bool(subprocess.check_output(
-            ['git', 'status', '--porcelain'], text=True,
-        ).strip())
+        dirty = bool(
+            subprocess.check_output(
+                ['git', 'status', '--porcelain'],
+                text=True,
+            ).strip()
+        )
     except Exception:
         dirty = None
 
@@ -229,8 +241,8 @@ def main():
         'git_dirty': dirty,
         'torch_version': torch.__version__,
         'protocol': 'one test evaluation per pre-registered '
-                    'validation-selected checkpoint; shared no-progress '
-                    'patience across selection metrics',
+        'validation-selected checkpoint; shared no-progress '
+        'patience across selection metrics',
         'results': {},
     }
     for metric_name, best in best_checkpoints.items():
@@ -254,10 +266,11 @@ def main():
             'checkpoint_sha256': file_sha256(path),
             'test': test_metrics,
         }
-        print('[{}] -> {}'.format(metric_name, {
-            k: round(v, 5) for k, v in test_metrics.items()
-            if k in ('ndcg@20', 'recall@1000')
-        }))
+        print(
+            '[{}] -> {}'.format(
+                metric_name, {k: round(v, 5) for k, v in test_metrics.items() if k in ('ndcg@20', 'recall@1000')}
+            )
+        )
 
     if args.output:
         os.makedirs(os.path.dirname(args.output) or '.', exist_ok=True)

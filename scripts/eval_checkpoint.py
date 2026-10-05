@@ -36,8 +36,7 @@ def get_inference_config(config, split):
 
 def evaluate(model, dataloader, metric_configs, pred_prefix, labels_prefix, meta):
     metrics = {
-        name: BaseMetric.create_from_config(metric_config, **meta)
-        for name, metric_config in metric_configs.items()
+        name: BaseMetric.create_from_config(metric_config, **meta) for name, metric_config in metric_configs.items()
     }
     running = {name: [] for name in metrics}
 

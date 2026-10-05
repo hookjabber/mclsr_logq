@@ -13,6 +13,7 @@ Usage:
         --checkpoint checkpoints/mclsr_grid_09_item_only_Clothing_best_state.pth \
         --output decile_09.json
 """
+
 import argparse
 import hashlib
 import json
@@ -33,7 +34,7 @@ def build_bins(counts, num_bins, tie_preserving):
     tie_preserving: items of equal count never split across bins (bin sizes
     become unequal — these are popularity bins, not true deciles)."""
     num_real = len(counts) - 2
-    real_counts = counts[1:num_real + 1]
+    real_counts = counts[1 : num_real + 1]
     item_bins = np.zeros(len(counts), dtype=np.int64)
     if tie_preserving:
         target = num_real / num_bins
@@ -89,7 +90,10 @@ def collect_per_user(model, dataloader, k, item_bins, num_bins):
                     'model returned only top-{} candidates but --k is {}: '
                     'set model.eval_top_k >= k in the config (metrics would '
                     'silently be recall@{} labeled as recall@{})'.format(
-                        model_preds.shape[1], k, model_preds.shape[1], k,
+                        model_preds.shape[1],
+                        k,
+                        model_preds.shape[1],
+                        k,
                     )
                 )
             preds = model_preds[:, :k].cpu()  # (B, k) item ids
@@ -98,7 +102,7 @@ def collect_per_user(model, dataloader, k, item_bins, num_bins):
             offset = 0
             for i in range(preds.shape[0]):
                 n = int(lengths[i].item())
-                targets = labels_flat[offset:offset + n]
+                targets = labels_flat[offset : offset + n]
                 offset += n
                 if n == 0:
                     continue
@@ -114,21 +118,28 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--params', required=True)
     parser.add_argument('--checkpoint', required=True)
-    parser.add_argument('--counts', default='./data/Clothing/item_counts.pkl',
-                        help='TRAIN frequency table used to build the bins')
+    parser.add_argument(
+        '--counts', default='./data/Clothing/item_counts.pkl', help='TRAIN frequency table used to build the bins'
+    )
     parser.add_argument('--k', type=int, default=1000)
     parser.add_argument('--num-bins', type=int, default=10)
-    parser.add_argument('--tie-preserving', action='store_true',
-                        help='never split items of equal train count across '
-                        'bins (bins become unequal-sized but honestly ordered)')
+    parser.add_argument(
+        '--tie-preserving',
+        action='store_true',
+        help='never split items of equal train count across bins (bins become unequal-sized but honestly ordered)',
+    )
     parser.add_argument('--bootstrap', type=int, default=2000)
     parser.add_argument('--split', choices=['validation', 'eval'], default='eval')
-    parser.add_argument('--baseline-checkpoint', default=None,
-                        help='second checkpoint (same config family): report '
-                        'per-bin PAIRED differences main - baseline with a '
-                        'cluster bootstrap over the shared users')
-    parser.add_argument('--baseline-params', default=None,
-                        help='config for the baseline checkpoint (defaults to --params)')
+    parser.add_argument(
+        '--baseline-checkpoint',
+        default=None,
+        help='second checkpoint (same config family): report '
+        'per-bin PAIRED differences main - baseline with a '
+        'cluster bootstrap over the shared users',
+    )
+    parser.add_argument(
+        '--baseline-params', default=None, help='config for the baseline checkpoint (defaults to --params)'
+    )
     parser.add_argument('--output', default=None, help='write the table as json')
     args = parser.parse_args()
 
@@ -145,21 +156,29 @@ def main():
     # as targets but get a bin anyway via the full-size lookup array
     num_real = len(counts) - 2
     item_bins, args.num_bins = build_bins(
-        counts, args.num_bins, args.tie_preserving,
+        counts,
+        args.num_bins,
+        args.tie_preserving,
     )
 
     dataset = BaseDataset.create_from_config(config['dataset'])
     _, validation_sampler, test_sampler = dataset.get_samplers()
     sampler = validation_sampler if args.split == 'validation' else test_sampler
     dataloader = BaseDataloader.create_from_config(
-        config['dataloader']['validation'], dataset=sampler, **dataset.meta,
+        config['dataloader']['validation'],
+        dataset=sampler,
+        **dataset.meta,
     )
     model = BaseModel.create_from_config(config['model'], **dataset.meta).to(DEVICE)
     checkpoint = torch.load(args.checkpoint, map_location=DEVICE)
     model.load_state_dict(checkpoint.get('model_state_dict', checkpoint))
 
     hits, totals, user_recalls = collect_per_user(
-        model, dataloader, args.k, item_bins, args.num_bins,
+        model,
+        dataloader,
+        args.k,
+        item_bins,
+        args.num_bins,
     )
 
     base_hits = None
@@ -168,14 +187,19 @@ def main():
         with open(base_config_path) as f:
             base_config = json.load(f)
         base_model = BaseModel.create_from_config(
-            base_config['model'], **dataset.meta,
+            base_config['model'],
+            **dataset.meta,
         ).to(DEVICE)
         base_ckpt = torch.load(args.baseline_checkpoint, map_location=DEVICE)
         base_model.load_state_dict(
             base_ckpt.get('model_state_dict', base_ckpt),
         )
         base_hits, base_totals, base_user_recalls = collect_per_user(
-            base_model, dataloader, args.k, item_bins, args.num_bins,
+            base_model,
+            dataloader,
+            args.k,
+            item_bins,
+            args.num_bins,
         )
         assert np.array_equal(totals, base_totals), 'user/target mismatch'
 
@@ -193,25 +217,32 @@ def main():
     lo, hi = np.percentile(samples, [2.5, 97.5], axis=0)
 
     bin_recall = hits.sum(0) / np.maximum(totals.sum(0), 1)
-    bin_counts = [counts[1:num_real + 1][item_bins[1:num_real + 1] == b]
-                  for b in range(args.num_bins)]
+    bin_counts = [counts[1 : num_real + 1][item_bins[1 : num_real + 1] == b] for b in range(args.num_bins)]
 
-    print(f'macro recall@{args.k} (tensorboard convention): {user_recalls.mean():.4f}  '
-          f'[{num_users} users, {int(totals.sum())} target events]')
-    print('CI: cluster bootstrap over test users, conditional on ONE trained '
-          'seed (no seed variability included)')
+    print(
+        f'macro recall@{args.k} (tensorboard convention): {user_recalls.mean():.4f}  '
+        f'[{num_users} users, {int(totals.sum())} target events]'
+    )
+    print('CI: cluster bootstrap over test users, conditional on ONE trained seed (no seed variability included)')
     print(f'{"bin":>3} {"train count":>13} {"items":>7} {"events":>8} {"recall":>8}  95% CI')
     rows = []
     for b in range(args.num_bins):
         crange = f'{int(bin_counts[b].min())}-{int(bin_counts[b].max())}'
         n_events = int(totals.sum(0)[b])
-        print(f'{b:>3} {crange:>13} {len(bin_counts[b]):>7} {n_events:>8} '
-              f'{bin_recall[b]:>8.4f}  [{lo[b]:.4f}, {hi[b]:.4f}]')
-        rows.append({
-            'bin': b, 'count_range': crange, 'items': len(bin_counts[b]),
-            'events': n_events,
-            'recall': float(bin_recall[b]), 'ci': [float(lo[b]), float(hi[b])],
-        })
+        print(
+            f'{b:>3} {crange:>13} {len(bin_counts[b]):>7} {n_events:>8} '
+            f'{bin_recall[b]:>8.4f}  [{lo[b]:.4f}, {hi[b]:.4f}]'
+        )
+        rows.append(
+            {
+                'bin': b,
+                'count_range': crange,
+                'items': len(bin_counts[b]),
+                'events': n_events,
+                'recall': float(bin_recall[b]),
+                'ci': [float(lo[b]), float(hi[b])],
+            }
+        )
 
     if base_hits is not None:
         dlo, dhi = np.percentile(diff_samples, [2.5, 97.5], axis=0)
@@ -220,10 +251,14 @@ def main():
         # two-sided bootstrap p per bin (+1 smoothing), Holm-adjusted across
         # bins — an exploratory multiplicity guard, not a confirmatory test
         n_boot = diff_samples.shape[0]
-        p_boot = np.minimum(1.0, 2 * np.minimum(
-            ((diff_samples <= 0).sum(0) + 1) / (n_boot + 1),
-            ((diff_samples >= 0).sum(0) + 1) / (n_boot + 1),
-        ))
+        p_boot = np.minimum(
+            1.0,
+            2
+            * np.minimum(
+                ((diff_samples <= 0).sum(0) + 1) / (n_boot + 1),
+                ((diff_samples >= 0).sum(0) + 1) / (n_boot + 1),
+            ),
+        )
         # paired sign-flip permutation (primary test): per-user hit diffs,
         # arm labels swapped per user; totals are arm-invariant
         user_diffs = hits - base_hits  # (users, bins)
@@ -234,16 +269,19 @@ def main():
         perm_stats = signs @ user_diffs / bin_tot  # (n_perm, bins)
         p_perm = ((np.abs(perm_stats) >= np.abs(observed)).sum(0) + 1) / (n_perm + 1)
         p_holm = holm_adjust(p_perm)
-        print(f'\npaired differences (main - baseline), same users both arms; '
-              f'baseline macro {base_user_recalls.mean():.4f}; '
-              f'exploratory (Holm-adjusted across {args.num_bins} bins):')
-        print(f'{"bin":>3} {"train count":>13} {"diff":>9}  '
-              f'95% CI{"":>12}{"p_boot":>7}{"p_perm":>8}{"p_holm":>8}  sig')
+        print(
+            f'\npaired differences (main - baseline), same users both arms; '
+            f'baseline macro {base_user_recalls.mean():.4f}; '
+            f'exploratory (Holm-adjusted across {args.num_bins} bins):'
+        )
+        print(f'{"bin":>3} {"train count":>13} {"diff":>9}  95% CI{"":>12}{"p_boot":>7}{"p_perm":>8}{"p_holm":>8}  sig')
         for b, row in enumerate(rows):
             sig = '*' if p_holm[b] < 0.05 else ''
-            print(f'{b:>3} {row["count_range"]:>13} {diffs[b]:>+9.4f}  '
-                  f'[{dlo[b]:+.4f}, {dhi[b]:+.4f}]  {p_boot[b]:>6.3f} '
-                  f'{p_perm[b]:>7.3f} {p_holm[b]:>7.3f}  {sig}')
+            print(
+                f'{b:>3} {row["count_range"]:>13} {diffs[b]:>+9.4f}  '
+                f'[{dlo[b]:+.4f}, {dhi[b]:+.4f}]  {p_boot[b]:>6.3f} '
+                f'{p_perm[b]:>7.3f} {p_holm[b]:>7.3f}  {sig}'
+            )
             row['diff'] = float(diffs[b])
             row['diff_ci'] = [float(dlo[b]), float(dhi[b])]
             row['p_boot'] = float(p_boot[b])
@@ -252,23 +290,28 @@ def main():
 
     if args.output:
         with open(args.output, 'w') as f:
-            json.dump({
-                'checkpoint': args.checkpoint,
-                'checkpoint_sha256': file_sha256(args.checkpoint),
-                'baseline_checkpoint': args.baseline_checkpoint,
-                'baseline_checkpoint_sha256': (
-                    file_sha256(args.baseline_checkpoint)
-                    if args.baseline_checkpoint else None
-                ),
-                'counts_table': args.counts,
-                'counts_table_sha256': file_sha256(args.counts),
-                'split': args.split, 'k': args.k,
-                'tie_preserving': bool(args.tie_preserving),
-                'ci_note': 'user cluster bootstrap, conditional on one seed; '
-                           'paired sign-flip permutation p, Holm-adjusted, '
-                           'exploratory',
-                'macro_recall': float(user_recalls.mean()), 'bins': rows,
-            }, f, indent=2)
+            json.dump(
+                {
+                    'checkpoint': args.checkpoint,
+                    'checkpoint_sha256': file_sha256(args.checkpoint),
+                    'baseline_checkpoint': args.baseline_checkpoint,
+                    'baseline_checkpoint_sha256': (
+                        file_sha256(args.baseline_checkpoint) if args.baseline_checkpoint else None
+                    ),
+                    'counts_table': args.counts,
+                    'counts_table_sha256': file_sha256(args.counts),
+                    'split': args.split,
+                    'k': args.k,
+                    'tie_preserving': bool(args.tie_preserving),
+                    'ci_note': 'user cluster bootstrap, conditional on one seed; '
+                    'paired sign-flip permutation p, Holm-adjusted, '
+                    'exploratory',
+                    'macro_recall': float(user_recalls.mean()),
+                    'bins': rows,
+                },
+                f,
+                indent=2,
+            )
 
 
 if __name__ == '__main__':

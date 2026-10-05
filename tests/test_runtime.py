@@ -128,11 +128,11 @@ def test_unwrap_state_dict():
 
 
 def test_sasrec_negative_rejection():
-    from irec.models.sasrec import SasRecModel
+    from irec.models.sasrec import SASRecModel
 
     torch.manual_seed(0)
     num_items = 12
-    model = SasRecModel(
+    model = SASRecModel(
         sequence_prefix='item',
         positive_prefix='labels',
         num_items=num_items,
@@ -169,7 +169,7 @@ def test_sasrec_negative_rejection():
 
     # dense catalog: user consumed everything -> must raise, never silently
     # accept a colliding negative
-    dense = SasRecModel(
+    dense = SASRecModel(
         sequence_prefix='item',
         positive_prefix='labels',
         num_items=2,
@@ -194,7 +194,7 @@ def test_sasrec_negative_rejection():
 
 
 def test_sasrec_inbatch_user_ids_and_last_query():
-    from irec.models.sasrec import SasRecInBatchModel
+    from irec.models.sasrec import SASRecInBatchModel
 
     torch.manual_seed(0)
     kwargs = dict(
@@ -214,12 +214,12 @@ def test_sasrec_inbatch_user_ids_and_last_query():
         'user.ids': torch.tensor([21, 22]),
         'user.length': torch.tensor([1, 1]),
     }
-    model = SasRecInBatchModel(**kwargs)
+    model = SASRecInBatchModel(**kwargs)
     model.train()
     out = model(batch)
     assert out['query_embeddings'].shape == (9, 8)
     assert out['user_ids'].tolist() == [21] * 6 + [22] * 3  # one owner per query
-    last = SasRecInBatchModel(query_positions='last', **kwargs)
+    last = SASRecInBatchModel(query_positions='last', **kwargs)
     last.train()
     out = last(batch)
     assert out['query_embeddings'].shape == (2, 8)

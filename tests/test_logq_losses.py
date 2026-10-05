@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 from irec.loss import (  # noqa: E402
     ContrastiveFullSoftmaxLoss,
     FpsLogQLoss,
-    MCLSRLogqInBatchLoss,
+    InBatchLogQLoss,
 )
 
 B = 8
@@ -96,7 +96,7 @@ def test_inbatch_matches_reference():
     q = torch.randn(B, D, requires_grad=True)
     p_emb = torch.randn(B, D)
     for lam, loo in [(1.0, False), (1.0, True), (0.0, False), (0.0, True)]:
-        loss = MCLSRLogqInBatchLoss(
+        loss = InBatchLogQLoss(
             queries_prefix='q',
             positive_prefix='p',
             positive_ids_prefix='pid',
@@ -118,7 +118,7 @@ def test_inbatch_correct_positive_matches_reference():
     path = _counts_path()
     q = torch.randn(B, D, requires_grad=True)
     p_emb = torch.randn(B, D)
-    got = MCLSRLogqInBatchLoss(
+    got = InBatchLogQLoss(
         queries_prefix='q',
         positive_prefix='p',
         positive_ids_prefix='pid',
@@ -138,7 +138,7 @@ def test_inbatch_correct_positive_matches_reference():
                 s[i, j] = -1e12
     want = torch.nn.functional.cross_entropy(s.float(), torch.arange(B))
     assert torch.allclose(got, want, atol=1e-4), (got.item(), want.item())
-    plain = MCLSRLogqInBatchLoss(
+    plain = InBatchLogQLoss(
         queries_prefix='q',
         positive_prefix='p',
         positive_ids_prefix='pid',
@@ -159,7 +159,7 @@ def test_inbatch_corrected_variant_matches_reference():
     path = _counts_path()
     q = torch.randn(B, D, requires_grad=True)
     p_emb = torch.randn(B, D)
-    got = MCLSRLogqInBatchLoss(
+    got = InBatchLogQLoss(
         queries_prefix='q',
         positive_prefix='p',
         positive_ids_prefix='pid',
@@ -197,7 +197,7 @@ def test_inbatch_mns_matches_reference():
     q = torch.randn(B, D, requires_grad=True)
     p_emb = torch.randn(B, D)
     K = 5
-    loss_fn = MCLSRLogqInBatchLoss(
+    loss_fn = InBatchLogQLoss(
         queries_prefix='q',
         positive_prefix='p',
         positive_ids_prefix='pid',
@@ -243,7 +243,7 @@ def test_uncertainty_composite_weights():
     p_emb = torch.randn(B, D)
     fst, snd = torch.randn(B, D), torch.randn(B, D)
     inner = [
-        MCLSRLogqInBatchLoss(
+        InBatchLogQLoss(
             queries_prefix='q',
             positive_prefix='p',
             positive_ids_prefix='pid',
@@ -383,7 +383,7 @@ def test_inbatch_cosine_temperature_matches_reference():
     q = torch.randn(B, D, requires_grad=True)
     p_emb = torch.randn(B, D)
     tau = 0.1
-    loss = MCLSRLogqInBatchLoss(
+    loss = InBatchLogQLoss(
         queries_prefix='q',
         positive_prefix='p',
         positive_ids_prefix='pid',

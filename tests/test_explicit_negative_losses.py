@@ -10,7 +10,7 @@ import tempfile
 import torch
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'src'))
-from irec.loss import MCLSRLogqLoss, SamplesSoftmaxLoss  # noqa: E402
+from irec.loss import SampledLogQLoss, SampledSoftmaxLoss  # noqa: E402
 
 
 def _counts_file(counts):
@@ -49,7 +49,7 @@ def test_explicit_negatives_logq_matches_manual():
     probs = torch.clamp(torch.tensor(counts, dtype=torch.float32) / sum(counts), min=1e-10)
     log_q = torch.log(probs)
     for lam in (0.0, 1.0):
-        loss = MCLSRLogqLoss(
+        loss = SampledLogQLoss(
             queries_prefix='q',
             positive_prefix='pos',
             negative_prefix='neg',
@@ -66,7 +66,7 @@ def test_explicit_negatives_logq_matches_manual():
 
 def test_explicit_negatives_lambda_zero_is_plain_sampled_softmax():
     counts = [0] + [3] * 12 + [0]
-    loss = MCLSRLogqLoss(
+    loss = SampledLogQLoss(
         queries_prefix='q',
         positive_prefix='pos',
         negative_prefix='neg',
@@ -78,7 +78,7 @@ def test_explicit_negatives_lambda_zero_is_plain_sampled_softmax():
     inputs, _ = _inputs(seed=3)
     got = loss(inputs)
     # with lambda = 0 the count table must not matter at all
-    other = MCLSRLogqLoss(
+    other = SampledLogQLoss(
         queries_prefix='q',
         positive_prefix='pos',
         negative_prefix='neg',
@@ -93,7 +93,7 @@ def test_explicit_negatives_lambda_zero_is_plain_sampled_softmax():
 def test_plain_sampled_softmax_matches_manual_and_has_no_accidental_hit_mask():
     # the framework's uncorrected sampled softmax (uniform-negative arms): cross-entropy over
     # [positive, negatives] with NO accidental-hit masking — documented in RESULTS.md
-    loss = SamplesSoftmaxLoss(queries_prefix='q', positive_prefix='pos', negative_prefix='neg')
+    loss = SampledSoftmaxLoss(queries_prefix='q', positive_prefix='pos', negative_prefix='neg')
     inputs, _ = _inputs(seed=5)
     got = loss(inputs)
     q, pos, neg = inputs['q'], inputs['pos'], inputs['neg']

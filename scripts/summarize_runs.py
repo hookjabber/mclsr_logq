@@ -16,6 +16,7 @@ Usage:
         --report eval/recall@1000 eval/ndcg@20                    # candidate-gen table
     python scripts/summarize_runs.py --protocol max --pattern 'mclsr_grid_04*'
 """
+
 import argparse
 import fnmatch
 import os
@@ -63,31 +64,38 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--logs', default='tensorboard_logs')
     parser.add_argument(
-        '--pattern', nargs='+',
+        '--pattern',
+        nargs='+',
         default=['mclsr_grid_*', 'sasrec_*'],
     )
     parser.add_argument(
-        '--protocol', choices=['at-val-best', 'max'], default='at-val-best',
+        '--protocol',
+        choices=['at-val-best', 'max'],
+        default='at-val-best',
     )
     parser.add_argument(
-        '--select', default='validation/ndcg@20',
+        '--select',
+        default='validation/ndcg@20',
         help='checkpoint-selection metric (at-val-best protocol)',
     )
     parser.add_argument(
-        '--report', nargs='+', default=['eval/ndcg@20'],
+        '--report',
+        nargs='+',
+        default=['eval/ndcg@20'],
         help='metrics reported at the selected checkpoint (at-val-best protocol)',
     )
     parser.add_argument(
-        '--metrics', nargs='+',
+        '--metrics',
+        nargs='+',
         default=['validation/ndcg@20', 'eval/ndcg@20'],
         help='metrics for the legacy max protocol',
     )
     args = parser.parse_args()
 
     run_dirs = sorted(
-        d for d in os.listdir(args.logs)
-        if os.path.isdir(os.path.join(args.logs, d))
-        and any(fnmatch.fnmatch(d, p) for p in args.pattern)
+        d
+        for d in os.listdir(args.logs)
+        if os.path.isdir(os.path.join(args.logs, d)) and any(fnmatch.fnmatch(d, p) for p in args.pattern)
     )
 
     if not run_dirs:
@@ -96,9 +104,7 @@ def main():
 
     name_w = max(len(d) for d in run_dirs) + 2
     if args.protocol == 'at-val-best':
-        columns = [f'{args.select} best (step)'] + [
-            f'{tag} @ ckpt' for tag in args.report
-        ]
+        columns = [f'{args.select} best (step)'] + [f'{tag} @ ckpt' for tag in args.report]
     else:
         columns = [f'{tag} max (step)' for tag in args.metrics]
     header = 'run'.ljust(name_w) + ''.join(c.rjust(34) for c in columns) + 'last step'.rjust(12)
@@ -130,11 +136,7 @@ def main():
                 else:
                     cells.append('-')
         last = last_step(scalars)
-        print(
-            d.ljust(name_w)
-            + ''.join(c.rjust(34) for c in cells)
-            + str(last if last is not None else '-').rjust(12)
-        )
+        print(d.ljust(name_w) + ''.join(c.rjust(34) for c in cells) + str(last if last is not None else '-').rjust(12))
 
 
 if __name__ == '__main__':

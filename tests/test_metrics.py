@@ -4,6 +4,7 @@ Every metric is checked against a hand-computed naive reference on a tricky
 multi-target batch (variable target counts, offset bookkeeping, zero-target
 user). Run directly (`python tests/test_metrics.py`) or via pytest.
 """
+
 import math
 import os
 import sys
@@ -24,12 +25,14 @@ from irec.metric.base import (  # noqa: E402
 #   user 1: targets {13};       hit at rank 0
 #   user 2: targets {21, 22};   no hits
 #   user 3: targets {} (zero targets)
-PREDS = torch.tensor([
-    [10, 7, 11, 12, 8],
-    [13, 14, 15, 16, 17],
-    [30, 31, 32, 33, 34],
-    [40, 41, 42, 43, 44],
-])
+PREDS = torch.tensor(
+    [
+        [10, 7, 11, 12, 8],
+        [13, 14, 15, 16, 17],
+        [30, 31, 32, 33, 34],
+        [40, 41, 42, 43, 44],
+    ]
+)
 INPUTS = {
     'p': PREDS,
     'labels.ids': torch.tensor([7, 8, 9, 13, 21, 22]),
