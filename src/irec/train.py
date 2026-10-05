@@ -1,3 +1,8 @@
+"""Exploratory training entry point: ``python -m irec.train --params <config>`` (validation and test
+callbacks as configured, TensorBoard logs, best and final checkpoints). The pre-registered protocol with a
+single test read is ``scripts/train_confirmatory.py``; both share ``irec.training``.
+"""
+
 import irec.utils
 from irec.utils import (
     parse_args,
@@ -14,134 +19,19 @@ from irec.loss import BaseLoss
 from irec.models import BaseModel
 from irec.optimizer import BaseOptimizer
 
-import copy
 import json
 import os
 import torch
 
+from irec.training import (  # noqa: F401  (re-exported for the scripts)
+    atomic_save,
+    best_checkpoint_path,
+    seed_val,
+    train,
+    unwrap_state_dict,
+)
+
 logger = create_logger(name=__name__)
-seed_val = 42
-
-
-def unwrap_state_dict(checkpoint):
-    """Accept bare state dicts and CheckpointCallback/eval wrappers alike."""
-    if isinstance(checkpoint, dict):
-        for key in ('model_state_dict', 'model'):
-            if key in checkpoint and isinstance(checkpoint[key], dict):
-                return checkpoint[key]
-    return checkpoint
-
-
-def best_checkpoint_path(checkpoint_stem, metric_name, primary_metric):
-    if metric_name == primary_metric:
-        suffix = 'best_state'  # historical name for the primary metric
-    else:
-        suffix = 'best_{}'.format(
-            metric_name.replace('/', '_').replace('@', '_at_'),
-        )
-    return './checkpoints/{}_{}.pth'.format(checkpoint_stem, suffix)
-
-
-def atomic_save(obj, path):
-    """Write to a temp file next to `path`, then rename: a run killed in the
-    middle of a save never leaves a truncated checkpoint behind."""
-    tmp_path = path + '.tmp'
-    torch.save(obj, tmp_path)
-    os.replace(tmp_path, path)
-
-
-def train(
-    dataloader,
-    model,
-    optimizer,
-    loss_function,
-    callback,
-    epoch_cnt=None,
-    step_cnt=None,
-    best_metric=None,
-    epochs_threshold=40,
-    on_improvement=None,
-):
-    """`best_metric`: None (final state only), one metric name, or a LIST of
-    names — one independently tracked best checkpoint per metric. Returns
-    {metric_name: {'state': cpu_state_dict, 'value', 'step', 'epoch'}}
-    (empty when best_metric is None). States are copied to CPU immediately so
-    several tracked bests do not accumulate on the GPU. NB the no-progress
-    patience is shared: an improvement in ANY tracked metric resets it.
-    `on_improvement(metric_name, best)` (optional) is called right after a
-    tracked best is updated — used to persist the best state immediately, so
-    an interrupted run (Ctrl+C, node reboot) still leaves its best checkpoint
-    on disk instead of only in memory."""
-    step_num = 0
-    epoch_num = 0
-
-    best_metrics = (
-        [best_metric] if isinstance(best_metric, str)
-        else list(best_metric or [])
-    )
-    current_values = {name: None for name in best_metrics}
-    best_checkpoints = {}
-    best_epoch = 0
-
-    logger.debug('Start training...')
-
-    while (epoch_cnt is None or epoch_num < epoch_cnt) and (
-        step_cnt is None or step_num < step_cnt
-    ):
-        if best_epoch + epochs_threshold < epoch_num:
-            logger.debug(
-                'There is no progress during {} epochs. Finish training'.format(
-                    epochs_threshold,
-                ),
-            )
-            break
-
-        logger.debug(f'Start epoch {epoch_num}')
-        for step, batch in enumerate(dataloader):
-            if step_cnt is not None and step_num >= step_cnt:
-                break
-            batch_ = copy.deepcopy(batch)
-
-            model.train()
-
-            for key, values in batch_.items():
-                batch_[key] = batch_[key].to(DEVICE)
-
-            batch_.update(model(batch_))
-            loss = loss_function(batch_)
-
-            optimizer.step(loss)
-            callback(batch_, step_num)
-            step_num += 1
-
-            for name in best_metrics:
-                if name not in batch_:
-                    continue
-                value = batch_[name]
-                # strict improvement: on an exact tie keep the FIRST best, the
-                # same convention summarize_runs.py uses to pick the step
-                if current_values[name] is None or current_values[name] < value:
-                    current_values[name] = value
-                    state = {
-                        key: (
-                            tensor.detach().cpu().clone()
-                            if torch.is_tensor(tensor) else copy.deepcopy(tensor)
-                        )
-                        for key, tensor in model.state_dict().items()
-                    }
-                    best_checkpoints[name] = {
-                        'state': state,
-                        'value': float(value),
-                        'step': step_num - 1,
-                        'epoch': epoch_num,
-                    }
-                    best_epoch = epoch_num
-                    if on_improvement is not None:
-                        on_improvement(name, best_checkpoints[name])
-
-        epoch_num += 1
-    logger.debug('Training procedure has been finished!')
-    return best_checkpoints
 
 
 def main():
@@ -153,6 +43,7 @@ def main():
 
     if config.get('use_wandb', False):
         import wandb  # optional dependency: required only when use_wandb is on
+
         wandb.init(
             project='irec',
             name=config['experiment_name'],
@@ -166,11 +57,10 @@ def main():
     config_save_path = os.path.join(log_dir, 'config.json')
     with open(config_save_path, 'w') as f:
         json.dump(config, f, indent=2)
-    
+
     logger.debug('Training config: \n{}'.format(json.dumps(config, indent=2)))
     logger.debug('Current DEVICE: {}'.format(DEVICE))
-    logger.info(f"Experiment config saved to: {config_save_path}")
-
+    logger.info(f'Experiment config saved to: {config_save_path}')
 
     dataset = BaseDataset.create_from_config(config['dataset'])
 
@@ -206,7 +96,7 @@ def main():
         logger.debug('Loading checkpoint from {}'.format(checkpoint_path))
         checkpoint = torch.load(checkpoint_path, map_location=DEVICE)
         logger.debug(checkpoint.keys())
-        # accept both bare state dicts and CheckpointCallback wrappers; NB this
+        # accept both bare state dicts and checkpoint wrappers; NB this
         # restores WEIGHTS only (optimizer/step/RNG resume is not implemented —
         # this is a warm start, not a resume)
         model.load_state_dict(unwrap_state_dict(checkpoint))
@@ -218,10 +108,7 @@ def main():
     optimizer = BaseOptimizer.create_from_config(
         config['optimizer'],
         model=model,
-        extra_parameters=(
-            list(loss_function.parameters())
-            if isinstance(loss_function, torch.nn.Module) else []
-        ),
+        extra_parameters=(list(loss_function.parameters()) if isinstance(loss_function, torch.nn.Module) else []),
     )
 
     callback = BaseCallback.create_from_config(
@@ -254,7 +141,10 @@ def main():
         atomic_save(best['state'], path)
         logger.debug(
             'Saved best checkpoint (by {} = {:.5f} @ step {}) as {}'.format(
-                metric_name, best['value'], best['step'], path,
+                metric_name,
+                best['value'],
+                best['step'],
+                path,
             ),
         )
 
@@ -283,6 +173,7 @@ def main():
 
     if config.get('use_wandb', False):
         import wandb
+
         wandb.finish()
 
 

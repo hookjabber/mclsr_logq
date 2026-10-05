@@ -1,3 +1,5 @@
+"""Model base classes: weight initialisation, the last-position gather and the causal transformer encoder shared by the SASRec models."""
+
 from irec.utils import MetaParent
 
 from irec.utils import (
@@ -18,6 +20,8 @@ class BaseModel(metaclass=MetaParent):
 
 
 class TorchModel(nn.Module, BaseModel):
+    """Registry root of the torch models: shared weight initialisation and the last-position gather."""
+
     @torch.no_grad()
     def _init_weights(self, initializer_range):
         for key, value in self.named_parameters():
@@ -65,6 +69,8 @@ class TorchModel(nn.Module, BaseModel):
 
 
 class SequentialTorchModel(TorchModel):
+    """Causal transformer encoder over item + position embeddings (positions counted from the end), LayerNorm and dropout on the input, padding masked; the SASRec models build on it."""
+
     def __init__(
         self,
         num_items,
@@ -85,13 +91,11 @@ class SequentialTorchModel(TorchModel):
         self._embedding_dim = embedding_dim
 
         self._item_embeddings = nn.Embedding(
-            num_embeddings=num_items
-            + 2,  # add zero embedding + mask embedding
+            num_embeddings=num_items + 2,  # add zero embedding + mask embedding
             embedding_dim=embedding_dim,
         )
         self._position_embeddings = nn.Embedding(
-            num_embeddings=max_sequence_length
-            + 1,  # in order to include `max_sequence_length` value
+            num_embeddings=max_sequence_length + 1,  # in order to include `max_sequence_length` value
             embedding_dim=embedding_dim,
         )
 
@@ -112,7 +116,7 @@ class SequentialTorchModel(TorchModel):
             num_layers,
         )
 
-    def _apply_sequential_encoder(self, events, lengths, add_cls_token=False):
+    def _apply_sequential_encoder(self, events, lengths):
         embeddings = self._item_embeddings(
             events,
         )  # (all_batch_events, embedding_dim)
@@ -135,9 +139,7 @@ class SequentialTorchModel(TorchModel):
             .tile([batch_size, 1])
             .long()
         )  # (batch_size, seq_len)
-        positions_mask = (
-            positions < lengths[:, None]
-        )  # (batch_size, max_seq_len)
+        positions_mask = positions < lengths[:, None]  # (batch_size, max_seq_len)
 
         positions = positions[positions_mask]  # (all_batch_events)
         position_embeddings = self._position_embeddings(
@@ -149,9 +151,7 @@ class SequentialTorchModel(TorchModel):
         )  # (batch_size, seq_len, embedding_dim)
         assert torch.allclose(position_embeddings[~mask], embeddings[~mask])
 
-        embeddings = (
-            embeddings + position_embeddings
-        )  # (batch_size, seq_len, embedding_dim)
+        embeddings = embeddings + position_embeddings  # (batch_size, seq_len, embedding_dim)
 
         embeddings = self._layernorm(
             embeddings,
@@ -162,29 +162,8 @@ class SequentialTorchModel(TorchModel):
 
         embeddings[~mask] = 0
 
-        if add_cls_token:
-            cls_token_tensor = self._cls_token.unsqueeze(0).unsqueeze(0)
-            cls_token_expanded = torch.tile(
-                cls_token_tensor,
-                (batch_size, 1, 1),
-            )
-            embeddings = torch.cat((cls_token_expanded, embeddings), dim=1)
-            mask = torch.cat(
-                (
-                    torch.ones(
-                        (batch_size, 1),
-                        dtype=torch.bool,
-                        device=DEVICE,
-                    ),
-                    mask,
-                ),
-                dim=1,
-            )
-
         if self._is_causal:
-            causal_mask = (
-                torch.tril(torch.ones(seq_len, seq_len)).bool().to(DEVICE)
-            )  # (seq_len, seq_len)
+            causal_mask = torch.tril(torch.ones(seq_len, seq_len)).bool().to(DEVICE)  # (seq_len, seq_len)
             embeddings = self._encoder(
                 src=embeddings,
                 mask=~causal_mask,
@@ -197,27 +176,3 @@ class SequentialTorchModel(TorchModel):
             )  # (batch_size, seq_len, embedding_dim)
 
         return embeddings, mask
-
-    @staticmethod
-    def _add_cls_token(items, lengths, cls_token_id=0):
-        num_items = items.shape[0]
-        batch_size = lengths.shape[0]
-        num_new_items = num_items + batch_size
-
-        new_items = (
-            torch.ones(num_new_items, dtype=items.dtype, device=items.device)
-            * cls_token_id
-        )  # (num_new_items)
-
-        old_items_mask = torch.zeros_like(new_items).bool()  # (num_new_items)
-        old_items_mask = ~old_items_mask.scatter(
-            src=torch.ones_like(lengths).bool(),
-            dim=0,
-            index=torch.cat(
-                [torch.LongTensor([0]).to(DEVICE), lengths + 1],
-            ).cumsum(dim=0)[:-1],
-        )  # (num_new_items)
-        new_items[old_items_mask] = items
-        new_length = lengths + 1
-
-        return new_items, new_length

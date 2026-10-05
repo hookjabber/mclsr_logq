@@ -1,3 +1,5 @@
+"""TensorBoard writer with a per-experiment log directory under ``tensorboard_logs/``."""
+
 import os
 import time
 import datetime

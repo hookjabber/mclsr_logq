@@ -1,3 +1,5 @@
+"""The torch DataLoader wrapper built from the config."""
+
 import copy
 
 from irec.utils import MetaParent
@@ -14,6 +16,8 @@ class BaseDataloader(metaclass=MetaParent):
 
 
 class TorchDataloader(BaseDataloader, config_name='torch'):
+    """A ``torch.utils.data.DataLoader`` with the batch processor as the collate function."""
+
     def __init__(self, dataloader):
         self._dataloader = dataloader
 
@@ -27,15 +31,12 @@ class TorchDataloader(BaseDataloader, config_name='torch'):
     def create_from_config(cls, config, **kwargs):
         create_config = copy.deepcopy(config)
         batch_processor = BaseBatchProcessor.create_from_config(
-            create_config.pop('batch_processor')
-            if 'batch_processor' in create_config
-            else {'type': 'identity'},
+            create_config.pop('batch_processor') if 'batch_processor' in create_config else {'type': 'identity'},
         )
         create_config.pop(
             'type',
         )  # For passing as **config in torch DataLoader
 
-        
         pin_memory = create_config.pop('pin_memory', True)
 
         return cls(

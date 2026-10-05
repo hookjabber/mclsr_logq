@@ -1,12 +1,15 @@
-from irec.dataset.samplers.base import TrainSampler, EvalSampler
-from irec.dataset.negative_samplers.base import BaseNegativeSampler
+"""SASRec training sampler: every position predicts the next item."""
 
+from irec.dataset.samplers.base import TrainSampler
+from irec.dataset.negative_samplers.base import BaseNegativeSampler
 
 
 class NextItemPredictionTrainSampler(
     TrainSampler,
     config_name='next_item_prediction',
 ):
+    """SASRec training example: the sequence shifted by one, every position predicts the next item."""
+
     def __init__(
         self,
         dataset,
@@ -55,11 +58,9 @@ class NextItemPredictionTrainSampler(
                 'positive.length': len(next_item_sequence),
             }
         else:
-            negative_sequence = (
-                self._negative_sampler.generate_negative_samples(
-                    sample,
-                    self._num_negatives,
-                )
+            negative_sequence = self._negative_sampler.generate_negative_samples(
+                sample,
+                self._num_negatives,
             )
 
             return {
@@ -72,16 +73,3 @@ class NextItemPredictionTrainSampler(
                 'negative.ids': negative_sequence,
                 'negative.length': len(negative_sequence),
             }
-
-
-class NextItemPredictionEvalSampler(
-    EvalSampler,
-    config_name='next_item_prediction',
-):
-    @classmethod
-    def create_from_config(cls, config, **kwargs):
-        return cls(
-            dataset=kwargs['dataset'],
-            num_users=kwargs['num_users'],
-            num_items=kwargs['num_items'],
-        )

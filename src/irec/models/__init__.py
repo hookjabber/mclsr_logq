@@ -1,9 +1,9 @@
 from .base import BaseModel, SequentialTorchModel
 from .mclsr import MCLSRModel
-from .sasrec import SasRecModel, SasRecInBatchModel
+from .sasrec import SASRecModel, SASRecInBatchModel
 
 __all__ = [
     'BaseModel',
     'MCLSRModel',
-    'SasRecModel',
+    'SASRecModel',
 ]

@@ -1,9 +1,13 @@
+"""Uniform negative sampling with rejection."""
+
 from irec.dataset.negative_samplers.base import BaseNegativeSampler
 
 import numpy as np
 
 
 class RandomNegativeSampler(BaseNegativeSampler, config_name='random'):
+    """Uniform negatives over the catalogue, rejecting the items of the example."""
+
     @classmethod
     def create_from_config(cls, _, **kwargs):
         return cls(

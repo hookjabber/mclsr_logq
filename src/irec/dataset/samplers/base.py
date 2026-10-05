@@ -1,5 +1,6 @@
-from irec.utils import MetaParent
+"""Sampler base classes: a training sampler yields one example per index, an evaluation sampler one user with its history and targets."""
 
+from irec.utils import MetaParent
 
 
 class TrainSampler(metaclass=MetaParent):

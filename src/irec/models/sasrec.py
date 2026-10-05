@@ -1,26 +1,29 @@
+"""SASRec encoders used as the second architecture of the study: classic binary cross-entropy and the in-batch retrieval objective."""
+
 from irec.models import SequentialTorchModel
 from irec.utils import create_masked_tensor
 
 import torch
 
 
-class SasRecModel(SequentialTorchModel, config_name='sasrec'):
+class SASRecModel(SequentialTorchModel, config_name='sasrec'):
+    """SASRec with the classic objective: every position predicts the next item against one rejection-sampled negative (binary cross-entropy, loss type ``sasrec``); inference ranks the catalogue from the last position."""
 
     def __init__(
-            self,
-            sequence_prefix,
-            positive_prefix,
-            num_items,
-            max_sequence_length,
-            embedding_dim,
-            num_heads,
-            num_layers,
-            dim_feedforward,
-            dropout=0.0,
-            activation='relu',
-            layer_norm_eps=1e-9,
-            initializer_range=0.02,
-            eval_top_k=50,
+        self,
+        sequence_prefix,
+        positive_prefix,
+        num_items,
+        max_sequence_length,
+        embedding_dim,
+        num_heads,
+        num_layers,
+        dim_feedforward,
+        dropout=0.0,
+        activation='relu',
+        layer_norm_eps=1e-9,
+        initializer_range=0.02,
+        eval_top_k=50,
     ):
         super().__init__(
             num_items=num_items,
@@ -32,7 +35,7 @@ class SasRecModel(SequentialTorchModel, config_name='sasrec'):
             dropout=dropout,
             activation=activation,
             layer_norm_eps=layer_norm_eps,
-            is_causal=True
+            is_causal=True,
         )
         self._sequence_prefix = sequence_prefix
         self._positive_prefix = positive_prefix
@@ -75,16 +78,12 @@ class SasRecModel(SequentialTorchModel, config_name='sasrec'):
 
             # a -- all_batch_events, n -- num_items, d -- embedding_dim
             all_scores = torch.einsum(
-                'ad,nd->an',
-                all_sample_embeddings,
-                all_embeddings
+                'ad,nd->an', all_sample_embeddings, all_embeddings
             )  # (all_batch_events, num_items)
 
-            positive_scores = torch.gather(
-                input=all_scores,
-                dim=1,
-                index=all_positive_sample_events[..., None]
-            )[:, 0]  # (all_batch_items)
+            positive_scores = torch.gather(input=all_scores, dim=1, index=all_positive_sample_events[..., None])[
+                :, 0
+            ]  # (all_batch_items)
 
             # rejection sampling over REAL items (1..num_items), excluding the
             # query's WHOLE consumed sequence and its target — the standard
@@ -99,18 +98,21 @@ class SasRecModel(SequentialTorchModel, config_name='sasrec'):
             # forbidden set per user = FULL sequence: inputs UNION positives
             # (the final target appears only among positives, so inputs alone
             # would still let early queries draw it as a negative)
-            last_positive = all_positive_sample_events[
-                torch.cumsum(all_sample_lengths, dim=0) - 1
-            ]  # (batch_size,)
+            last_positive = all_positive_sample_events[torch.cumsum(all_sample_lengths, dim=0) - 1]  # (batch_size,)
             per_user_forbidden = torch.cat(
-                (sample_ids_padded, last_positive[:, None]), dim=1,
+                (sample_ids_padded, last_positive[:, None]),
+                dim=1,
             )
             forbidden = torch.repeat_interleave(
-                per_user_forbidden, all_sample_lengths, dim=0,
+                per_user_forbidden,
+                all_sample_lengths,
+                dim=0,
             )  # (all_batch_events, seq_len + 1), identical rows per user
             negative_ids = torch.randint(
-                1, self._num_items + 1,
-                size=all_positive_sample_events.shape, device=device,
+                1,
+                self._num_items + 1,
+                size=all_positive_sample_events.shape,
+                device=device,
             )
             bad = torch.ones_like(negative_ids, dtype=torch.bool)
             for _ in range(64):  # expected #collisions per pass ~ len/|V| << 1
@@ -118,8 +120,10 @@ class SasRecModel(SequentialTorchModel, config_name='sasrec'):
                 if not bad.any():
                     break
                 negative_ids[bad] = torch.randint(
-                    1, self._num_items + 1,
-                    size=(int(bad.sum()),), device=device,
+                    1,
+                    self._num_items + 1,
+                    size=(int(bad.sum()),),
+                    device=device,
                 )
             if bad.any():
                 raise RuntimeError(
@@ -129,11 +133,9 @@ class SasRecModel(SequentialTorchModel, config_name='sasrec'):
                         int(bad.sum()),
                     )
                 )
-            negative_scores = torch.gather(
-                input=all_scores,
-                dim=1,
-                index=negative_ids[..., None]
-            )[:, 0]  # (all_batch_items)
+            negative_scores = torch.gather(input=all_scores, dim=1, index=negative_ids[..., None])[
+                :, 0
+            ]  # (all_batch_items)
 
             return {
                 'positive_scores': positive_scores,
@@ -144,45 +146,44 @@ class SasRecModel(SequentialTorchModel, config_name='sasrec'):
             last_embeddings = self._get_last_embedding(embeddings, mask)  # (batch_size, embedding_dim)
             # b - batch_size, n - num_candidates, d - embedding_dim
             candidate_scores = torch.einsum(
-                'bd,nd->bn',
-                last_embeddings,
-                self._item_embeddings.weight
+                'bd,nd->bn', last_embeddings, self._item_embeddings.weight
             )  # (batch_size, num_items + 2)
             candidate_scores[:, 0] = -torch.inf
-            candidate_scores[:, self._num_items + 1:] = -torch.inf
+            candidate_scores[:, self._num_items + 1 :] = -torch.inf
             if self._eval_top_k > self._num_items:
                 raise ValueError(
                     'eval_top_k={} is larger than num_items={}'.format(
-                        self._eval_top_k, self._num_items,
+                        self._eval_top_k,
+                        self._num_items,
                     ),
                 )
 
             _, indices = torch.topk(
-                candidate_scores,
-                k=self._eval_top_k, dim=-1, largest=True
+                candidate_scores, k=self._eval_top_k, dim=-1, largest=True
             )  # (batch_size, eval_top_k)
 
             return indices
 
 
-class SasRecInBatchModel(SasRecModel, config_name='sasrec_in_batch'):
+class SASRecInBatchModel(SASRecModel, config_name='sasrec_in_batch'):
+    """SASRec trained with the same in-batch retrieval loss as MCLSR (``mclsr_logq_inbatch``): one query per position (``query_positions: all``) or per sequence (``last``), the positives of the other queries as negatives, owner ids exposed for the same-user mask."""
 
     def __init__(
-            self,
-            sequence_prefix,
-            positive_prefix,
-            num_items,
-            max_sequence_length,
-            embedding_dim,
-            num_heads,
-            num_layers,
-            dim_feedforward,
-            dropout=0.0,
-            activation='relu',
-            layer_norm_eps=1e-9,
-            initializer_range=0.02,
-            eval_top_k=50,
-            query_positions='all',
+        self,
+        sequence_prefix,
+        positive_prefix,
+        num_items,
+        max_sequence_length,
+        embedding_dim,
+        num_heads,
+        num_layers,
+        dim_feedforward,
+        dropout=0.0,
+        activation='relu',
+        layer_norm_eps=1e-9,
+        initializer_range=0.02,
+        eval_top_k=50,
+        query_positions='all',
     ):
         super().__init__(
             sequence_prefix=sequence_prefix,
@@ -240,7 +241,8 @@ class SasRecInBatchModel(SasRecModel, config_name='sasrec_in_batch'):
             if self._query_positions == 'last':
                 # one query per sequence: its final position and final positive
                 in_batch_queries_embeddings = self._get_last_embedding(
-                    embeddings, mask,
+                    embeddings,
+                    mask,
                 )  # (batch_size, embedding_dim)
                 last_index = torch.cumsum(all_sample_lengths, dim=0) - 1
                 in_batch_positive_events = in_batch_positive_events[last_index]  # (batch_size)
@@ -248,7 +250,8 @@ class SasRecInBatchModel(SasRecModel, config_name='sasrec_in_batch'):
             else:
                 in_batch_queries_embeddings = embeddings[mask]  # (all_batch_events, embedding_dim)
                 query_user_ids = torch.repeat_interleave(
-                    user_ids, all_sample_lengths,
+                    user_ids,
+                    all_sample_lengths,
                 )  # (all_batch_events)
 
             in_batch_positive_embeddings = self._item_embeddings(
@@ -275,22 +278,20 @@ class SasRecInBatchModel(SasRecModel, config_name='sasrec_in_batch'):
 
             # b - batch_size, n - num_candidates, d - embedding_dim
             candidate_scores = torch.einsum(
-                'bd,nd->bn',
-                last_embeddings,
-                self._item_embeddings.weight
+                'bd,nd->bn', last_embeddings, self._item_embeddings.weight
             )  # (batch_size, num_items + 2)
             candidate_scores[:, 0] = -torch.inf
-            candidate_scores[:, self._num_items + 1:] = -torch.inf
+            candidate_scores[:, self._num_items + 1 :] = -torch.inf
             if self._eval_top_k > self._num_items:
                 raise ValueError(
                     'eval_top_k={} is larger than num_items={}'.format(
-                        self._eval_top_k, self._num_items,
+                        self._eval_top_k,
+                        self._num_items,
                     ),
                 )
 
             _, indices = torch.topk(
-                candidate_scores,
-                k=self._eval_top_k, dim=-1, largest=True
+                candidate_scores, k=self._eval_top_k, dim=-1, largest=True
             )  # (batch_size, eval_top_k)
 
             return indices

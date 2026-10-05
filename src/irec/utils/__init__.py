@@ -1,10 +1,10 @@
+"""Shared utilities: device, seeding, argument parsing, logging, padded-tensor helpers."""
+
 from .registry import MetaParent
-from .grid_search import Params
 from .tensorboards import *
 
 __all__ = [
     'MetaParent',
-    'Params',
 ]
 
 import json
@@ -16,9 +16,7 @@ import os
 
 import torch
 
-DEVICE = (
-    torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-)
+DEVICE = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 # DEVICE = torch.device('cpu')
 
 
@@ -100,10 +98,7 @@ def dict_to_str(x, params):
             if isinstance(v, dict):
                 # part = '_'.join([f'{k}-{sub_part}' for sub_part in dict_to_str(v, params[k]).split('_')])
                 part = '_'.join(
-                    [
-                        f'{sub_part}'
-                        for sub_part in dict_to_str(v, params[k]).split('_')
-                    ],
+                    [f'{sub_part}' for sub_part in dict_to_str(v, params[k]).split('_')],
                 )
             elif isinstance(v, tuple) or isinstance(v, list):
                 sub_strings = []

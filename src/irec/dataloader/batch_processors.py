@@ -1,3 +1,5 @@
+"""Collate functions: variable-length id lists become one flat tensor plus a length per example."""
+
 import torch
 from irec.utils import MetaParent
 
@@ -13,6 +15,8 @@ class IdentityBatchProcessor(BaseBatchProcessor, config_name='identity'):
 
 
 class BasicBatchProcessor(BaseBatchProcessor, config_name='basic'):
+    """Flattens variable-length ``<prefix>.ids`` lists into one long tensor plus ``<prefix>.length`` per example."""
+
     def __call__(self, batch):
         processed_batch = {}
 

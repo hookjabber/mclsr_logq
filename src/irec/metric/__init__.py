@@ -1,7 +1,3 @@
-from .base import BaseMetric, StatefullMetric, StaticMetric
+from .base import BaseMetric, StatefullMetric
 
-__all__ = [
-    'BaseMetric',
-    'StatefullMetric',
-    'StaticMetric',
-]
+__all__ = ['BaseMetric', 'StatefullMetric']

@@ -1,9 +1,13 @@
+"""Popularity-proportional negative sampling with rejection."""
+
 import numpy as np
 from irec.dataset.negative_samplers.base import BaseNegativeSampler
 from collections import Counter
 
 
 class PopularNegativeSampler(BaseNegativeSampler, config_name='popular'):
+    """Negatives drawn proportionally to training popularity, rejecting the items of the example."""
+
     def __init__(self, dataset, num_users, num_items):
         super().__init__(
             dataset=dataset,
@@ -50,10 +54,7 @@ class PopularNegativeSampler(BaseNegativeSampler, config_name='popular'):
         negatives = set()
         while len(negatives) < num_negatives:
             sampled_ids = np.random.choice(
-                self._item_ids,
-                size=num_negatives - len(negatives),
-                p=self._probs,
-                replace=True
+                self._item_ids, size=num_negatives - len(negatives), p=self._probs, replace=True
             )
 
             for idx in sampled_ids:

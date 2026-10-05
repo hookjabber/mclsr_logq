@@ -1,3 +1,5 @@
+"""Optimizer wrapper: a torch optimizer with an optional scheduler, built from the config."""
+
 import copy
 
 from irec.utils import MetaParent
@@ -21,6 +23,8 @@ class BaseOptimizer(metaclass=MetaParent):
 
 
 class BasicOptimizer(BaseOptimizer, config_name='basic'):
+    """A torch optimizer (and optional scheduler) built from the config; ``step`` runs backward, the update and the scheduler."""
+
     def __init__(
         self,
         model,

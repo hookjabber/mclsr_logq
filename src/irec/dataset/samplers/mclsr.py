@@ -1,3 +1,5 @@
+"""Samplers of the MCLSR dataset: ladder lines for training, history / targets for evaluation."""
+
 from irec.dataset.samplers.base import TrainSampler, EvalSampler
 from irec.dataset.negative_samplers.base import BaseNegativeSampler
 
@@ -5,7 +7,11 @@ import random
 
 
 class MCLSRTrainSampler(TrainSampler, config_name='mclsr'):
-    def __init__(self, dataset, num_users, num_items, user_to_all_seen_items, num_negatives, negative_sampler=None, **kwargs):
+    """One ladder line = one training example: history, its last item as the target, optional explicit negatives."""
+
+    def __init__(
+        self, dataset, num_users, num_items, user_to_all_seen_items, num_negatives, negative_sampler=None, **kwargs
+    ):
         super().__init__()
         self._dataset = dataset
         self._num_users = num_users
@@ -35,7 +41,6 @@ class MCLSRTrainSampler(TrainSampler, config_name='mclsr'):
             negative_sampler=negative_sampler,
         )
 
-
     def __getitem__(self, index):
         sample = self._dataset[index]
 
@@ -45,7 +50,8 @@ class MCLSRTrainSampler(TrainSampler, config_name='mclsr'):
 
         if self._negative_sampler is not None:
             negatives = self._negative_sampler.generate_negative_samples(
-                sample, self._num_negatives,
+                sample,
+                self._num_negatives,
             )
         else:
             # Fallback: uniform rejection sampling
@@ -70,6 +76,8 @@ class MCLSRTrainSampler(TrainSampler, config_name='mclsr'):
 
 
 class MCLSRPredictionEvalSampler(EvalSampler, config_name='mclsr'):
+    """One evaluation user = history (cropped to the model length) and the list of held-out targets."""
+
     def __init__(self, dataset, num_users, num_items):
         super().__init__(dataset, num_users, num_items)
 
@@ -80,7 +88,7 @@ class MCLSRPredictionEvalSampler(EvalSampler, config_name='mclsr'):
             num_users=kwargs['num_users'],
             num_items=kwargs['num_items'],
         )
-    
+
     def __getitem__(self, index):
         sample = self._dataset[index]
         history_sequence = sample['history']

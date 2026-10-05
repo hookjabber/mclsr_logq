@@ -9,13 +9,13 @@ import scipy.sparse as sp
 import torch
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'src'))
-from irec.dataset.base import GraphDataset  # noqa: E402
+from irec.dataset.graph import GraphDataset  # noqa: E402
 
 
 def _dense_sym_norm(adj):
     d = adj.sum(1)
     with np.errstate(divide='ignore'):
-        d_inv = np.where(d > 0, d ** -0.5, 0.0)
+        d_inv = np.where(d > 0, d**-0.5, 0.0)
     return d_inv[:, None] * adj * d_inv[None, :]
 
 

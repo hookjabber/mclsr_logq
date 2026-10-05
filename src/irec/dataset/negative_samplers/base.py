@@ -1,3 +1,5 @@
+"""Negative sampler base class: draws item ids for an example, excluding what the example contains."""
+
 from collections import defaultdict
 
 from irec.utils import MetaParent

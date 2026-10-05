@@ -1,12 +1,12 @@
+"""Callbacks run after every training step: scalar logging, validation and test scoring at a fixed step period, composition."""
+
 from irec.metric import BaseMetric, StatefullMetric
 
 import irec.utils
 from irec.utils import MetaParent, create_logger
 
 import numpy as np
-import os
 import torch
-from pathlib import Path
 
 logger = create_logger(name=__name__)
 
@@ -31,6 +31,8 @@ class BaseCallback(metaclass=MetaParent):
 
 
 class MetricCallback(BaseCallback, config_name='metric'):
+    """Logs a scalar from the batch dictionary (a loss value) to TensorBoard every ``on_step`` steps."""
+
     def __init__(
         self,
         model,
@@ -70,12 +72,8 @@ class MetricCallback(BaseCallback, config_name='metric'):
         if step_num % self._on_step == 0:
             for metric_name, metric_function in self._metrics.items():
                 metric_value = metric_function(
-                    ground_truth=inputs[
-                        self._model.schema['ground_truth_prefix']
-                    ],
-                    predictions=inputs[
-                        self._model.schema['predictions_prefix']
-                    ],
+                    ground_truth=inputs[self._model.schema['ground_truth_prefix']],
+                    predictions=inputs[self._model.schema['predictions_prefix']],
                 )
 
                 irec.utils.tensorboards.GLOBAL_TENSORBOARD_WRITER.add_scalar(
@@ -92,67 +90,9 @@ class MetricCallback(BaseCallback, config_name='metric'):
             irec.utils.tensorboards.GLOBAL_TENSORBOARD_WRITER.flush()
 
 
-class CheckpointCallback(BaseCallback, config_name='checkpoint'):
-    def __init__(
-        self,
-        model,
-        train_dataloader,
-        validation_dataloader,
-        eval_dataloader,
-        optimizer,
-        on_step,
-        save_path,
-        model_name,
-    ):
-        super().__init__(
-            model,
-            train_dataloader,
-            validation_dataloader,
-            eval_dataloader,
-            optimizer,
-        )
-        self._on_step = on_step
-        self._save_path = Path(os.path.join(save_path, model_name))
-        if self._save_path.exists():
-            logger.warning(
-                'Checkpoint path `{}` is already exists!'.format(
-                    self._save_path,
-                ),
-            )
-        else:
-            self._save_path.mkdir(parents=True, exist_ok=True)
-
-    @classmethod
-    def create_from_config(cls, config, **kwargs):
-        return cls(
-            model=kwargs['model'],
-            train_dataloader=kwargs['train_dataloader'],
-            validation_dataloader=kwargs['validation_dataloader'],
-            eval_dataloader=kwargs['eval_dataloader'],
-            optimizer=kwargs['optimizer'],
-            on_step=config['on_step'],
-            save_path=config['save_path'],
-            model_name=config['model_name'],
-        )
-
-    def __call__(self, inputs, step_num):
-        if step_num % self._on_step == 0:
-            logger.debug('Saving model state on step {}...'.format(step_num))
-            torch.save(
-                {
-                    'step_num': step_num,
-                    'model_state_dict': self._model.state_dict(),
-                    'optimizer_state_dict': self._optimizer.state_dict(),
-                },
-                os.path.join(
-                    self._save_path,
-                    'checkpoint_{}.pth'.format(step_num),
-                ),
-            )
-            logger.debug('Saving done!')
-
-
 class InferenceCallback(BaseCallback):
+    """Scores a split every ``on_step`` steps in eval mode (no dropout, no graph), averages the per-user metrics and writes them to the batch dictionary and TensorBoard; the validation and test callbacks differ only in the split."""
+
     def __init__(
         self,
         model,
@@ -228,9 +168,7 @@ class InferenceCallback(BaseCallback):
                         )
 
                     if self._loss_prefix is not None:
-                        running_params[self._loss_prefix] += batch[
-                            self._loss_prefix
-                        ].item()
+                        running_params[self._loss_prefix] += batch[self._loss_prefix].item()
 
             for metric_name, metric_function in self._metrics.items():
                 if isinstance(metric_function, StatefullMetric):
@@ -307,6 +245,8 @@ class EvalCallback(InferenceCallback, config_name='eval'):
 
 
 class CompositeCallback(BaseCallback, config_name='composite'):
+    """Runs a list of callbacks in order."""
+
     def __init__(
         self,
         model,
@@ -333,10 +273,7 @@ class CompositeCallback(BaseCallback, config_name='composite'):
             validation_dataloader=kwargs['validation_dataloader'],
             eval_dataloader=kwargs['eval_dataloader'],
             optimizer=kwargs['optimizer'],
-            callbacks=[
-                BaseCallback.create_from_config(cfg, **kwargs)
-                for cfg in config['callbacks']
-            ],
+            callbacks=[BaseCallback.create_from_config(cfg, **kwargs) for cfg in config['callbacks']],
         )
 
     def __call__(self, inputs, step_num):

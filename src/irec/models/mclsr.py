@@ -1,3 +1,24 @@
+"""MCLSR (Wang et al., CIKM 2022) as used in the logQ study.
+
+Equation numbers refer to the paper. Training forward:
+
+* current interest  I_s = A_s E_u with A_s = softmax(W2 tanh(W1 E_{u,p}^T))            eq. 2-3
+  (E_{u,p} = item + position embeddings, positions counted from the end; LayerNorm and
+  dropout on E_{u,p} are additions of this implementation, identical in every arm);
+* user-item graph   H_all,uv = GraphEncoder([H_u || H_v], G_uv), two LightGCN steps      eq. 1, 4
+  (last layer by default, layer mean behind `graph_layer_mean`; edge dropout in training);
+* general interest  I_c = A_c E_{u,uv} with A_c = softmax(tanh(W3 h_{u,uv}) E_{u,uv}^T)  eq. 5-6
+* projections       T = W2p ELU(W1p I + b1p) + b2p for the two interest views            eq. 7
+  (two projectors by default, one shared projector behind `share_il_projector`);
+* feature views     H_{u,uu} = GraphEncoder(H_u, G_uu), H_{v,vv} likewise, one MLP per    eq. 9-10
+  entity type; the item views are reduced to the unique items of the batch;
+* combined interest I_comb = alpha I_s + (1 - alpha) I_c for the retrieval loss             eq. 13
+
+The losses live in `irec.loss` (`fps` for eq. 8 / 11, `mclsr_logq_inbatch` for eq. 14, `composite`
+for eq. 15). Inference ranks the catalogue by (I_s)^T h_v, eq. 16, without the graphs.
+`use_graph=False` keeps only I_s (the no-graph arms).
+"""
+
 from .base import TorchModel
 
 import torch
@@ -70,19 +91,16 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
         self._item_graph = item_graph
 
         self._item_embeddings = nn.Embedding(
-            num_embeddings=num_items
-            + 2,  # add zero embedding + mask embedding
+            num_embeddings=num_items + 2,  # add zero embedding + mask embedding
             embedding_dim=embedding_dim,
         )
         self._position_embeddings = nn.Embedding(
-            num_embeddings=max_sequence_length
-            + 1,  # in order to include `max_sequence_length` value
+            num_embeddings=max_sequence_length + 1,  # in order to include `max_sequence_length` value
             embedding_dim=embedding_dim,
         )
 
         self._user_embeddings = nn.Embedding(
-            num_embeddings=num_users
-            + 2,  # add zero embedding + mask embedding
+            num_embeddings=num_users + 2,  # add zero embedding + mask embedding
             embedding_dim=embedding_dim,
         )
 
@@ -201,7 +219,8 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
             share_il_projector=config.get('share_il_projector', False),
             graph_layer_mean=config.get('graph_layer_mean', False),
             output_full_contrastive_tables=config.get(
-                'output_full_contrastive_tables', False,
+                'output_full_contrastive_tables',
+                False,
             ),
             eval_top_k=config.get('eval_top_k', 50),
         )
@@ -237,12 +256,8 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
             return all_embeddings[-1]
 
     def forward(self, inputs):
-        all_sample_events = inputs[
-            '{}.ids'.format(self._sequence_prefix)
-        ]  # (all_batch_events)
-        all_sample_lengths = inputs[
-            '{}.length'.format(self._sequence_prefix)
-        ]  # (batch_size)
+        all_sample_events = inputs['{}.ids'.format(self._sequence_prefix)]  # (all_batch_events)
+        all_sample_lengths = inputs['{}.length'.format(self._sequence_prefix)]  # (batch_size)
         user_ids = inputs['{}.ids'.format(self._user_prefix)]  # (batch_size)
 
         embeddings = self._item_embeddings(
@@ -268,9 +283,7 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
             .tile([batch_size, 1])
             .long()
         )  # (batch_size, seq_len)
-        positions_mask = (
-            positions < all_sample_lengths[:, None]
-        )  # (batch_size, max_seq_len)
+        positions_mask = positions < all_sample_lengths[:, None]  # (batch_size, max_seq_len)
 
         positions = positions[positions_mask]  # (all_batch_events)
         position_embeddings = self._position_embeddings(
@@ -281,11 +294,9 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
             lengths=all_sample_lengths,
         )  # (batch_size, seq_len, embedding_dim)
         assert torch.allclose(position_embeddings[~mask], embeddings[~mask])
-        
-        positioned_embeddings = (
-            embeddings + position_embeddings
-        )  # (batch_size, seq_len, embedding_dim)
-        
+
+        positioned_embeddings = embeddings + position_embeddings  # (batch_size, seq_len, embedding_dim)
+
         positioned_embeddings = self._layernorm(
             positioned_embeddings,
         )  # (batch_size, seq_len, embedding_dim)
@@ -296,7 +307,7 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
 
         # formula 2
         sequential_attention_matrix = self._current_interest_learning_encoder(
-            positioned_embeddings, # E_u,p
+            positioned_embeddings,  # E_u,p
         ).squeeze(-1)  # (batch_size, seq_len)
 
         sequential_attention_matrix[~mask] = -torch.inf
@@ -308,7 +319,7 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
         # formula 3
         sequential_representation = torch.einsum(
             'bs,bsd->bd',
-            sequential_attention_matrix, # A^s
+            sequential_attention_matrix,  # A^s
             embeddings,
         )  # (batch_size, embedding_dim)
 
@@ -336,42 +347,42 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
 
             # general interest
             # formula 4
-            all_init_embeddings = torch.cat([self._user_embeddings.weight, 
-                                             self._item_embeddings.weight], 
-                                             dim=0)
-            all_graph_embeddings = self._apply_graph_encoder(embeddings=all_init_embeddings, 
-                                                             graph=self._graph, use_mean=self._graph_layer_mean)
+            all_init_embeddings = torch.cat([self._user_embeddings.weight, self._item_embeddings.weight], dim=0)
+            all_graph_embeddings = self._apply_graph_encoder(
+                embeddings=all_init_embeddings, graph=self._graph, use_mean=self._graph_layer_mean
+            )
 
             common_graph_user_embs_all, common_graph_item_embs_all = torch.split(
                 all_graph_embeddings, [self._num_users + 2, self._num_items + 2]
             )
             common_graph_user_embs_batch = common_graph_user_embs_all[user_ids]
             common_graph_item_embs_batch, _ = create_masked_tensor(
-                data=common_graph_item_embs_all[all_sample_events], 
-                lengths=all_sample_lengths
+                data=common_graph_item_embs_all[all_sample_events], lengths=all_sample_lengths
             )
 
             # formula 5: A_c = softmax(tanh(W_3 * h_u,uv) * (E_u,uv)^T)
-            graph_attention_matrix = torch.einsum('bd,bsd->bs', 
-                                                  self._general_interest_learning_encoder
-                                                  (common_graph_user_embs_batch), 
-                                                  common_graph_item_embs_batch)
+            graph_attention_matrix = torch.einsum(
+                'bd,bsd->bs',
+                self._general_interest_learning_encoder(common_graph_user_embs_batch),
+                common_graph_item_embs_batch,
+            )
             graph_attention_matrix[~mask] = -torch.inf
             graph_attention_matrix = torch.softmax(graph_attention_matrix, dim=1)
 
             # formula 6: I_c = A_c * E_u,uv
-            original_graph_representation = torch.einsum('bs,bsd->bd', 
-                                                         graph_attention_matrix, 
-                                                         common_graph_item_embs_batch)
+            original_graph_representation = torch.einsum(
+                'bs,bsd->bd', graph_attention_matrix, common_graph_item_embs_batch
+            )
             original_sequential_representation = sequential_representation
 
             # formula 13: I_comb = alpha * I_s + (1 - alpha) * I_c
             # L_P (Downstream Loss)
-            combined_representation = (self._alpha * original_sequential_representation + 
-                                       (1 - self._alpha) * original_graph_representation)
+            combined_representation = (
+                self._alpha * original_sequential_representation + (1 - self._alpha) * original_graph_representation
+            )
             labels = inputs['{}.ids'.format(self._labels_prefix)]
             labels_embeddings = self._item_embeddings(labels)
-            
+
             # formula 7
             # L_IL (Interest-level CL)
             sequential_representation_proj = self._sequential_projector(original_sequential_representation)
@@ -379,34 +390,29 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
 
             raw_negative_ids = inputs['{}.ids'.format(self._negatives_prefix)]
             num_negatives = raw_negative_ids.shape[0] // batch_size
-            negative_ids = raw_negative_ids.view(batch_size, num_negatives) # (Batch, NumNegs)
-            negative_embeddings = self._item_embeddings(negative_ids) # (Batch, NumNegs, Dim)
+            negative_ids = raw_negative_ids.view(batch_size, num_negatives)  # (Batch, NumNegs)
+            negative_embeddings = self._item_embeddings(negative_ids)  # (Batch, NumNegs, Dim)
 
             outputs = {
                 # L_P (formula 14)
                 'combined_representation': combined_representation,
                 'label_representation': labels_embeddings,
-
                 'negative_representation': negative_embeddings,
-
                 # --- ID PASS-THROUGH FOR LOGQ & MASKING ---
                 # We pass raw item and user indices to enable advanced loss operations:
-                # 1. False Negative Masking: Allows SamplesSoftmaxLoss to identify and 
-                #    neutralize cases where a target item accidentally appears in the 
+                # 1. False Negative Masking: Allows SampledSoftmaxLoss to identify and
+                #    neutralize cases where a target item accidentally appears in the
                 #    negative sampling pool.
-                # 2. Per-item LogQ Correction: Enables mapping item IDs to global frequency 
+                # 2. Per-item LogQ Correction: Enables mapping item IDs to global frequency
                 #    stats (item_counts.pkl) to remove popularity bias (Sampling Bias).
-                'positive_ids': labels,       # Item target indices
-                'negative_ids': negative_ids, # Sampled negative item indices
-                
-                # Useful for potential User-level LogQ correction as requested 
+                'positive_ids': labels,  # Item target indices
+                'negative_ids': negative_ids,  # Sampled negative item indices
+                # Useful for potential User-level LogQ correction as requested
                 # by the supervisor to handle highly active users.
                 'user_ids': user_ids,
-
                 # for L_IL (formula 8)
                 'sequential_representation': sequential_representation_proj,
                 'graph_representation': graph_representation_proj,
-
                 # raw item table for the exact full-catalog softmax anchor
                 'item_embedding_table': self._item_embeddings.weight,
             }
@@ -415,17 +421,18 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
                 # formula 9: H_u,uu = GraphEncoder(H_u, G_uu)
                 # L_UC (User-level CL)
                 user_graph_user_embs_all = self._apply_graph_encoder(
-                    embeddings=self._user_embeddings.weight,
-                    graph=self._user_graph, use_mean=self._graph_layer_mean
+                    embeddings=self._user_embeddings.weight, graph=self._user_graph, use_mean=self._graph_layer_mean
                 )
                 user_graph_user_embs_batch = user_graph_user_embs_all[user_ids]
 
                 # formula 10
                 # T_f,uu = MLP(H_u,uu) and T_f,uv = MLP(H_u,uv)
-                outputs.update({
-                    'user_graph_user_embeddings': self._user_projection(user_graph_user_embs_batch),
-                    'common_graph_user_embeddings': self._user_projection(common_graph_user_embs_batch),
-                })
+                outputs.update(
+                    {
+                        'user_graph_user_embeddings': self._user_projection(user_graph_user_embs_batch),
+                        'common_graph_user_embeddings': self._user_projection(common_graph_user_embs_batch),
+                    }
+                )
                 if self._output_full_contrastive_tables:
                     # full tables of BOTH user views for full-catalog contrastive
                     outputs['user_graph_user_table'] = self._user_projection(
@@ -440,8 +447,7 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
                 common_graph_items_flat = common_graph_item_embs_batch[mask]
 
                 item_graph_items_all = self._apply_graph_encoder(
-                    embeddings=self._item_embeddings.weight,
-                    graph=self._item_graph, use_mean=self._graph_layer_mean
+                    embeddings=self._item_embeddings.weight, graph=self._item_graph, use_mean=self._graph_layer_mean
                 )
                 item_graph_items_flat = item_graph_items_all[all_sample_events]
 
@@ -465,15 +471,17 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
                     dim_size=num_unique_items,
                 )
 
-                outputs.update({
-                    'item_graph_item_embeddings': self._item_projection(unique_item_graph_items),
-                    'common_graph_item_embeddings': self._item_projection(unique_common_graph_items),
-                    'item_ids': unique_item_ids,
-                    'item_event_count': torch.tensor(
-                        all_sample_events.shape[0],
-                        device=all_sample_events.device,
-                    ),
-                })
+                outputs.update(
+                    {
+                        'item_graph_item_embeddings': self._item_projection(unique_item_graph_items),
+                        'common_graph_item_embeddings': self._item_projection(unique_common_graph_items),
+                        'item_ids': unique_item_ids,
+                        'item_event_count': torch.tensor(
+                            all_sample_events.shape[0],
+                            device=all_sample_events.device,
+                        ),
+                    }
+                )
                 if self._output_full_contrastive_tables:
                     # full tables of BOTH item views for full-catalog contrastive
                     outputs['item_graph_item_table'] = self._item_projection(
@@ -486,13 +494,11 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
             return outputs
         else:  # eval mode
             # formula 16: R(u,N) = Top-N((I_s)^T * h_v) over the full catalog
-            candidate_embeddings = (
-                self._item_embeddings.weight
-            )  # (num_items, embedding_dim)
+            candidate_embeddings = self._item_embeddings.weight  # (num_items, embedding_dim)
             candidate_scores = torch.einsum(
                 'bd,nd->bn',
-                sequential_representation, # I_s
-                candidate_embeddings, # all h_v
+                sequential_representation,  # I_s
+                candidate_embeddings,  # all h_v
             )  # (batch_size, num_items)
             candidate_scores[:, 0] = -torch.inf
             candidate_scores[:, self._num_items + 1 :] = -torch.inf

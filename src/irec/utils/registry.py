@@ -1,3 +1,5 @@
+"""The component registry: a metaclass that registers every subclass under its ``config_name`` and builds it from a config dict."""
+
 import inspect
 
 
@@ -11,9 +13,7 @@ class MetaParent(type):
             base_class_found = False
             for key in cls.mro():
                 if isinstance(key, MetaParent) and key.mro()[1] is object:
-                    assert (
-                        base_class_found is False
-                    ), 'multiple base classes(bug)'
+                    assert base_class_found is False, 'multiple base classes(bug)'
                     base_class = key
                     base_class_found = True
             assert base_class_found is True, f'no base class for {name}'
@@ -72,8 +72,4 @@ class MetaParent(type):
             return cls(**kwargs)
 
         if 'create_from_config' not in cls.__dict__:
-            cls.create_from_config = (
-                parent_create_from_config
-                if is_base_class
-                else child_create_from_config
-            )
+            cls.create_from_config = parent_create_from_config if is_base_class else child_create_from_config
