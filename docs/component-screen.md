@@ -14,7 +14,7 @@ batching. Each starts from the same seed. The default budget is **65,536 updates
 not the original study's 250,000; do not compare different budgets as matched arms.
 
 An optional `--source-root` selects a separately copied source snapshot with only
-the audited count-validation and stable-inclusion repairs. Its entire inventory
+the count-validation and stable-inclusion changes. Its entire inventory
 is frozen too; added/deleted files or any other source differences are rejected.
 All screen arms use that same snapshot, not a mixture of old/new executables.
 

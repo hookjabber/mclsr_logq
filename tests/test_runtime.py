@@ -1,6 +1,6 @@
 """Smoke tests for the training-loop and analysis runtime paths.
 
-Covers the round-6/7 audit fixes: exact step limit, multi-metric best
+Covers the exact step limit, multi-metric best
 tracking, checkpoint unwrapping, SASRec negative rejection sampling, and the
 decile-analysis helpers (tie-preserving bins, Holm adjustment).
 

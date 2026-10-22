@@ -55,7 +55,7 @@ A failed pair is incomplete, not a usable result. Inspect `queue.events.jsonl`,
 `queue.summary.json`, per-arm logs, and validated `result.json` files; a shell
 prompt or a Slurm `RUNNING` allocation alone does not establish completion.
 
-## Interpret separately from the paper audit
+## Interpretation and paper fidelity
 
 Report the paired UC-Q minus control delta for each seed, then the mean and
 spread across seeds 1–3. Compare Recall@1000 at the NDCG-selected checkpoint,

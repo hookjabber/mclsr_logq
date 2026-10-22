@@ -33,7 +33,7 @@ For the equation-by-equation comparison and the distinction between deliberate
 logQ experiments, implementation choices and unknown author details, see
 [paper alignment](./docs/PAPER_ALIGNMENT.md).
 
-> **Protocol status (October 2026):** historical tables use `legacy-v1` preprocessing.
+> **Data protocol:** historical tables use `legacy-v1` preprocessing.
 > Corrected per-target windows, positive item IDs and aligned train/eval lengths are
 > available as opt-in `windowed-v2`; historical results have **not** been rerun with it.
 > See [protocols and limitations](./docs/PROTOCOL_V2.md) before training or citing results.
@@ -70,11 +70,8 @@ Where to look:
 
 ## Verification
 
-Every stage of the pipeline has an independent check that does not reuse the code it verifies:
-the split files are rebuilt from the raw ratings and diffed, the three graphs are recomputed with
-scipy, the forward pass and all losses are reimplemented in numpy from the saved weights, a
-synthetic end-to-end run must reproduce itself seed for seed, and the headline comparisons carry
-paired per-user bootstrap intervals. What each check covers and how to run it:
+The tests cover preprocessing, graph construction, numerical values and gradients, ranking,
+and synthetic end-to-end training. Commands, reference implementations and their scope:
 [VERIFICATION.md](./VERIFICATION.md).
 
 For intermittent native training crashes, see [isolated loss diagnostics](./docs/native-crash-diagnostics.md).
@@ -95,15 +92,15 @@ see the [validation-only component screen](./docs/component-screen.md).
 | `scripts/` | data preparation, the confirmatory runner and queues, summaries, the independent checks, figures — [scripts/README.md](./scripts/README.md) |
 | `tests/` | reference implementations of every loss and metric, graph construction, config validation, runtime, and a synthetic end-to-end run (all in CI) |
 | `results/confirm/`, `results/stats/`, `results/deciles/`, `results/explor/` | per-run reports with content hashes, paired bootstrap tables, decile analyses, summaries of the exploratory runs |
-| `RESULTS.md`, `RUN_INDEX.md`, `VERIFICATION.md`, `REPRODUCE.md` | the results with verdicts; every run of the study; what was checked and how; the end-to-end recipe |
+| `RESULTS.md`, `RUN_INDEX.md`, `VERIFICATION.md`, `REPRODUCE.md` | results; run index; testing commands and numerical references; the end-to-end recipe |
 | `notebooks/` | the original dataset preprocessing notebook (superseded by `scripts/prepare_dataset.py`, which reproduces its files exactly) and dataset statistics |
 
 ## Quick start
 
 ```bash
-uv venv --python 3.12 && source .venv/bin/activate && uv sync --frozen
+uv venv --python 3.12 && source .venv/bin/activate && uv sync --frozen --extra dev
 export PYTHONPATH=src
-python -m pytest -q tests                                                   # ~10 s on a CPU
+python -m pytest -q -rs tests
 python scripts/prepare_dataset.py --csv data/Clothing/data.csv --out data/Clothing
 python scripts/generate_item_counts.py --input data/Clothing/train_sasrec.txt --output data/Clothing/item_counts.pkl --num_items 23033
 python scripts/train_confirmatory.py --params configs/train/clothing64/02_logq_downstream.json --seed 1 \

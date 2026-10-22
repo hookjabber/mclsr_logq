@@ -28,8 +28,6 @@ from irec.utils import create_masked_tensor
 
 
 def scatter_mean(src, index, dim=0, dim_size=None):
-    # group-mean of src rows by index; verified against a naive loop
-    # (values and gradients) in the 2026-07-07 audit
     out_size = dim_size if dim_size is not None else index.max() + 1
     out = torch.zeros((out_size, src.size(1)), dtype=src.dtype, device=src.device)
     counts = torch.bincount(index, minlength=out_size).unsqueeze(-1).clamp(min=1)
@@ -403,17 +401,8 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
                 'combined_representation': combined_representation,
                 'label_representation': labels_embeddings,
                 'negative_representation': negative_embeddings,
-                # --- ID PASS-THROUGH FOR LOGQ & MASKING ---
-                # We pass raw item and user indices to enable advanced loss operations:
-                # 1. False Negative Masking: Allows SampledSoftmaxLoss to identify and
-                #    neutralize cases where a target item accidentally appears in the
-                #    negative sampling pool.
-                # 2. Per-item LogQ Correction: Enables mapping item IDs to global frequency
-                #    stats (item_counts.pkl) to remove popularity bias (Sampling Bias).
                 'positive_ids': labels,  # Item target indices
                 'negative_ids': negative_ids,  # Sampled negative item indices
-                # Useful for potential User-level LogQ correction as requested
-                # by the supervisor to handle highly active users.
                 'user_ids': user_ids,
                 # for L_IL (formula 8)
                 'sequential_representation': sequential_representation_proj,

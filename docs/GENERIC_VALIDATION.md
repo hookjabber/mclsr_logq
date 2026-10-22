@@ -1,15 +1,12 @@
 # General input and evaluation validation
 
-This is a software-contract check, not proof that every dataset or GPU execution
-is correct. It supplements the paper audit and the Clothing-specific evidence.
+The loaders, samplers, models and metrics enforce the contracts below.
 See [paper alignment](PAPER_ALIGNMENT.md) for the equation-by-equation comparison
 and which research departures are actually related to logQ.
-These fixes apply to the current development code; frozen training snapshots,
-historical results and cluster jobs are not migrated.
 
 ## Dataset and graph contract
 
-Completed v2 inputs are now checked in both MCLSR and SASRec loaders, not just
+Completed v2 inputs are checked in both MCLSR and SASRec loaders, not just
 when frequency graphs are requested. The six file hashes, catalogue bounds,
 raw split alignment/disjointness, raw80/20 evaluation split and exact training
 window multiset must agree. Cropping or a history/target intersection must not
@@ -19,17 +16,15 @@ loaded windows. Invalid history caps and graph neighborhood sizes fail early.
 
 The legacy reader retains its historical cropping/intersection behavior for
 reproduction; it is not advertised as a canonical-event validator. Passing raw
-evaluation history/target records as graph rows is unsupported and now produces
-an explicit error rather than a missing-key exception.
+evaluation history/target records as graph rows is unsupported and produces an explicit error.
 
 ## Ranking and repeated targets
 
 The evaluation task recommends distinct catalogue items with binary relevance.
 Targets are therefore a **set of relevant items**, not a count of repeated
 events. For targets `A,A,B`, retrieving `A,B` gives Recall=1 and standard NDCG=1
-when they occupy the first two positions. The previous implementation used set
-membership for hits but event counts for the denominator, incorrectly lowering
-these scores. Only the metric's local relevance set is deduplicated: source
+when they occupy the first two positions. Both hit membership and the relevance
+denominator use the same set. Only the metric's local relevance set is deduplicated: source
 events, training targets, sequence order and graph event counts are preserved.
 
 All four ranking metrics reject duplicate predictions, padding/nonpositive IDs,
@@ -48,10 +43,8 @@ MCLSR, SASRec and SASRec-in-batch continue to rank the full real-item catalogue.
 Previously seen items remain eligible, so repeated-consumption targets are not
 made impossible by a history filter. Labels do not enter the score computation.
 Padding and mask IDs are excluded. Invalid `eval_top_k` and NaN/Inf real-item
-scores now fail explicitly rather than producing an arbitrary ranking.
-For finite scores and valid cutoffs, the previous top-k calculation is retained,
-including its existing tie behavior. This change does not replace MCLSR's
-attention pooling with SASRec's Transformer or change graph/loss architecture.
+scores fail explicitly rather than producing an arbitrary ranking.
+For finite scores and valid cutoffs, ranking uses PyTorch top-k and its tie behavior.
 
 ## Negative sampling and loss masks
 
@@ -64,20 +57,16 @@ in-batch negatives; changing one does not establish the other's exact proposal.
 
 Classic BCE SASRec also retains its usual uniform rejection path, but falls back
 to uniform sampling from each unresolved user's exact eligible catalogue. It no
-longer treats 64 unlucky draws as proof that no candidate exists, and rechecks the
-last draw instead of using a stale rejection mask. A genuinely saturated user
-still raises an explicit error. This is a Python sampling exception, not evidence
-for the cause of a native SIGSEGV.
+longer relies on a fixed number of unlucky draws to decide catalogue saturation.
+The last draw is checked before fallback. A genuinely saturated user raises an explicit error.
 
-Hard exclusions in retrieval and contrastive losses now use negative infinity rather
+Hard exclusions in retrieval and contrastive losses use negative infinity rather
 than a finite `-1e12` sentinel. The finite sentinel could outrank an even smaller
 valid logit. Corrected objectives explicitly return zero contribution and zero
 gradient for rows without any valid negatives, avoiding both fake comparisons
 and undefined all-masked log-sum-exp gradients. Objective variants, same-user
 mask choices, temperatures and component weights are not silently switched.
-Contrastive cross-only, paper, symmetric and full-catalogue paths are checked
-against explicitly enumerated allowed candidates, including extreme finite
-dot-product and Euclidean scores. Full-catalogue contrastive positives cannot
+Full-catalogue contrastive positives cannot
 refer to padding or mask rows.
 
 ## Reproducible checks
@@ -86,7 +75,7 @@ refer to padding or mask rows.
   permutations of a three-item catalogue, target sequences of length0..3 with
   repetitions, three cutoffs, variable batches, invalid inputs, and all three
   inference models.
-- `tests/test_end_to_end.py`: two additional repeated-event pipelines, for binary
+- `tests/test_end_to_end.py`: repeated-event pipelines for binary
   and event-count graphs. Each prepares v2 data and role counts, performs eight
   CPU optimizer updates with all four losses and downstream logQ, selects a
   validation checkpoint, reloads it, and independently recomputes test metrics
@@ -108,8 +97,7 @@ refer to padding or mask rows.
   repeated-ID batches, value/gradient oracles and full-catalogue mask boundaries.
 - `tests/test_optimizer_contract.py`: a single global clipping norm over all
   optimizer parameter groups, including learned uncertainty-loss weights and
-  excluding unoptimized parameters. Previously only model parameters were clipped;
-  the fixed-weight component screen does not use the affected combination.
+  excluding unoptimized parameters.
 
 For exact historical source identity, keep the frozen-screen fingerprint test
 strict. Modified development sources are not byte-identical to that screen;
@@ -137,15 +125,11 @@ nor real-data training, arbitrary device migration or long-run native stability.
 The numerical tests of independent equations remain separate: agreement between
 two devices alone would not prove that the shared formula is correct.
 
-The 17 October TITAN RTX probe was **not fully green**: five of 275 elementwise
-tensor checks failed across four MCLSR cases, on shared-interest-projector bias
-gradients. SASRec-in-batch passed. The original reports and tolerances were retained.
-For the base MCLSR and matched masked-Q0 cases, a diagnostic using identical
-initial weights found CPU64/CUDA64 agreement within `1e-9 + 1e-8*abs(reference)`;
-CUDA32 also passed against CPU64 at the original float32 bounds. CPU32 did not.
-This identifies a numerical-precision issue in these cases, not a demonstrated
-CUDA or logQ formula defect. It is not a long-training or SIGSEGV result, and
-production activations/dtypes were not changed to hide the mismatch.
+Shared-interest-projector bias gradients can exceed the float32 CPU/CUDA comparison
+tolerance. Compare identical initial weights in float64 to distinguish precision
+sensitivity from formula differences. Do not relax tolerances or change production
+activations merely to suppress a mismatch. Device parity does not diagnose a native
+SIGSEGV or establish long-run training stability.
 
 ## Limits that tests do not remove
 
@@ -155,6 +139,6 @@ production activations/dtypes were not changed to hide the mismatch.
   that correction must improve every component or dataset.
 - Binary and event-frequency graph weights are separate choices; the latter is
   opt-in. See [graph event counts](GRAPH_EVENT_COUNTS.md).
-- This CPU pass does not establish the cause of the separate native CUDA SIGSEGV,
+- These tests do not establish the cause of a native CUDA SIGSEGV,
   long-run training stability, statistically significant quality improvements,
   or complete reproduction of unavailable author code.

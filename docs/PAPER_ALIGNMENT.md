@@ -1,16 +1,16 @@
 # MCLSR: paper alignment and research departures
 
-This is a specification audit of the implemented model and the archived
-15-arm component screen, not a claim to reproduce the authors' executable or
+This document compares the implemented model and the archived
+15-arm component screen with the paper, without claiming to reproduce the authors' executable or
 published metrics. The reference is Wang et al., *Multi-level Contrastive
 Learning Framework for Sequential Recommendation*, CIKM 2022,
 [arXiv:2208.13007v1](https://arxiv.org/abs/2208.13007).
-The inspected PDF has SHA256
+The reference PDF has SHA256
 `1fb27b09a64a924dfaa0e4126c54cbe204423f12bfcbff2b361a10d23d8c2eef`.
 Equation and section references below identify the paper, not an inferred author
-implementation. No verified author source/split/evaluator is available in this audit.
+implementation. The authors' exact source, split and evaluator are not specified here.
 
-## Verdict
+## Scope
 
 The model implements the principal MCLSR attention, graph, projection, fusion and
 inference equations. **The complete experiment is not identical to the paper.**
@@ -20,13 +20,12 @@ claiming every difference is necessary for logQ, would both be incorrect.
 
 Numerical tests compare values and gradients to independent equations. They do
 not prove equivalence of sampling distributions, training dynamics or final quality.
-Confirmed software-contract bugs and repairs are documented separately in
+Input and evaluation contracts are documented in
 [general validation](GENERIC_VALIDATION.md).
 
 ## What is actually configured
 
-All 15 archived component-screen configs were read and checked against their
-individual manifest hashes. They share the same model, dataset, optimizer and
+The 15 archived component-screen configs share the same model, dataset, optimizer and
 dataloaders. The profile is:
 
 | Setting | Effective value |
@@ -122,7 +121,7 @@ the same masks. Compare them against `masked_dq1_auxq0`, not directly against
 `full_dq1`, which also differs in duplicate masking. See the exact
 [15-arm matrix](component-screen.md) and [matched seed follow-up](logq-followup.md).
 
-## Evidence and limits
+## Reference tests and limits
 
 - `test_paper_architecture_oracle.py`: NumPy forward equations and finite-difference
   parameter gradients; readouts, sharing, fusion, graph operators and reductions.
@@ -136,27 +135,11 @@ the same masks. Compare them against `masked_dq1_auxq0`, not directly against
 - [General validation](GENERIC_VALIDATION.md): repeated events through preparation,
   graph/count construction, CPU training, checkpoint reload and independent metrics.
 
-The full local suite rerun on 22 October with the original evidence bundle
-has 1097 passes and one archived-source-identity failure.
-This is not a fully green suite or a claim
-that frozen results were recomputed. Source/config/metric changes must be frozen
-in a new experiment snapshot before their quality can be compared scientifically.
+Archive-dependent tests require `MCLSR_SCREEN_EVIDENCE`; without that bundle they
+are skipped. Source-identity checks require exact historical bytes, while profile
+assertions check configurations and declared loss interventions separately.
+Changed sources must use a new experiment snapshot rather than old source hashes.
 
-The archive-profile assertions are separate from source identity: all 15 archived
-configs and their declared loss interventions are checked even when the old-source
-fingerprint assertion fails. Global gradient clipping now also covers learned
-loss weights through the optimizer's parameter groups; this conditional bug did
-not affect the fixed-weight component screen.
-
-For a portable checkout, archive-dependent tests use an explicit
-`MCLSR_SCREEN_EVIDENCE` path rather than a machine-local default. Without that
-external bundle they are reported as skipped, not validated. Providing the
-original bundle retains the strict source-identity failure described above;
-neither the historical hashes nor the identity assertion have been changed.
-The portable run on 22 October has 1078 passes and 20 archive-dependent skips;
-lint and format checks pass for all source, script and test files.
-
-No test here proves GPU stability or resolves the separate native SIGSEGV.
-No scientific configs, archived results or running jobs are modified by this
-document. A verified author implementation or clarification is still needed for
-the unresolved author choices; new runs are needed for claims about quality.
+Numerical tests do not establish long-run GPU stability or recommendation quality.
+Unspecified author choices require an author implementation or clarification;
+quality claims require experiments under a declared protocol.

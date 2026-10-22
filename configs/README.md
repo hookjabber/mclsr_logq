@@ -8,6 +8,7 @@ against the component registry.
 
 | directory | what |
 |---|---|
+| `train/validation/` | paired v2 event-count/binary graph controls, all logQ off, validation-only selection; see [graph weights](../docs/GRAPH_EVENT_COUNTS.md) |
 | `train/beauty/`, `train/toys/` (CDs & Vinyl), `train/clothing64/` | the arms of the multi-seed study, validation every 64 steps (256 on CDs & Vinyl) |
 | `train/grid/` | the original single-seed Clothing grid (validation every 256 steps) |
 | `train/legacy/` | historical configs, kept for provenance, not validated |

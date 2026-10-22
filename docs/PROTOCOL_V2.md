@@ -1,10 +1,9 @@
-# Data protocols, paper fidelity and audit repairs
+# Data protocols and compatibility
 
-## Status
+## Protocols
 
-Historical configurations and result tables remain historical. Software regression tests and
-small device checks do not retroactively validate those experiments. No old dataset, count table,
-checkpoint or report should be overwritten to apply the fixes below.
+Keep historical datasets, count tables, checkpoints and reports separate from new protocol runs.
+Changing preprocessing requires a new dataset directory and experiment namespace.
 
 | Contract | `legacy-v1` | `windowed-v2` |
 |---|---|---|
@@ -26,8 +25,10 @@ The dataset loader recognizes the manifest automatically and rejects conflicting
 It also checks the six file hashes and refuses an incomplete preprocessing directory.
 V2 catalogue dimensions come from the full manifest, not a cropped training history; legacy
 datasets retain the historical post-crop dimension rules for checkpoint compatibility.
-An explicit `max_history_length` gives the same loader contract; it cannot recover events already
-removed by old preprocessing. SASRec remains a SASRec-style post-LN backbone, not an exact copy
+An explicit `max_history_length` controls row lengths but does not prove v2 preprocessing and
+cannot recover events removed by old preprocessing. Set `expected_protocol: "windowed-v2"`
+in the inner dataset config to require a validated preprocessing manifest.
+SASRec remains a SASRec-style post-LN backbone, not an exact copy
 of the original TensorFlow architecture.
 
 ## Prepare a new dataset without changing the old one
@@ -64,7 +65,7 @@ For a correction-only comparison keep variant, masks, batch size, graph/regulari
 data and checkpoint selection fixed and change only lambda. Changing `corrected`, Q and same-user
 masking together is a combined intervention, not an isolated correction ablation.
 
-## What the software checks now protect
+## Input and provenance requirements
 
 - Graph archives embed a canonical interaction hash, dimensions, graph type, options and builder
   version; missing/mismatched/corrupt provenance triggers a rebuild. Writes replace one complete

@@ -2,7 +2,7 @@
 
 ## Two different graph definitions
 
-The default `interaction_weighting: "binary"` preserves the existing study:
+The default `interaction_weighting: "binary"` uses presence weights:
 `R[user, item] = 1` if the training data contains that pair. Multiple genuine
 events and repeated occurrences of an event across training windows both collapse
 to a single edge. This is a presence graph, not an event-frequency graph.
@@ -10,7 +10,7 @@ to a single edge. This is a presence graph, not an event-frequency graph.
 The opt-in `interaction_weighting: "event_count"` counts genuine events:
 for a training sequence `A, B, A`, the weights are `R[user, A] = 2` and
 `R[user, B] = 1`. The windows `A,B` and `A,B,A` must **not** be counted together
-as five independent events. Longer histories must not change graph weights.
+as five independent events. Changing only the window history cap must not change graph weights.
 
 For either mode, user-user weights are `R @ R.T` and item-item weights are
 `R.T @ R`, followed by the existing diagonal removal, optional row-wise top-k,
@@ -23,6 +23,41 @@ the remaining architecture, self-loop policy, evaluation protocol, or an exact
 reproduction of the authors' implementation.
 
 ## Selecting frequency weights
+
+The explicit event-count profile is
+`configs/train/validation/clothing_v2_event_count_l00.json`. Its matched control is
+`configs/train/validation/clothing_v2_binary_l00.json`. They differ **only** in
+`interaction_weighting` and experiment name.
+Both inner datasets explicitly set `expected_protocol: "windowed-v2"`, requiring a validated
+preprocessing manifest. A directory name alone is not accepted as proof of v2 preprocessing.
+Legacy configs without this requirement continue to support manifest-free inputs.
+
+Both profiles use all three graphs, v2 history capacity 20, shared IL projection,
+cosine/paper auxiliary losses at temperature 0.5 and weights 1/0.05/0.05. Downstream
+is in-batch with logQ disabled; auxiliary logQ is also disabled. LayerNorm and input/edge
+dropout 0.3 are retained so graph weighting is the only comparison factor. These are
+graph controls within the in-batch study, **not** full paper-replication profiles.
+They use seed 1, 65,536 updates and validation every 256 updates, selecting NDCG@20;
+no test-evaluation callback is configured. One seed is diagnostic, not confirmation.
+
+Before running either profile, prepare completed `windowed-v2` data in the separate
+`data/Clothing_v2` directory from the original uncropped source, as described in
+[the v2 instructions](PROTOCOL_V2.md). Generate `item_target_counts.pkl` and
+`item_context_counts.pkl` with `generate_mclsr_role_counts.py`, using the new manifest's
+catalogue size and row cap 21. The target artifact is required even at logQ lambda zero.
+Do not substitute graph-event frequencies for target/context proposals.
+
+Run each profile in a separate experiment namespace without loading an old checkpoint:
+
+```bash
+PYTHONPATH=src python -m irec.train \
+  --params configs/train/validation/clothing_v2_event_count_l00.json
+```
+
+Use the companion binary configuration for a matched comparison. These validation-only
+profiles are not inputs to `train_confirmatory.py`, which requires a test-evaluation callback.
+If train sequences have no repeated user-item events, the graph modes coincide;
+running both then introduces no distinct graph intervention.
 
 Add this field to the **graph dataset wrapper**, not the inner sequence dataset:
 
@@ -65,8 +100,7 @@ triples, so changing multiplicity with unchanged support invalidates every graph
 reordering events/windows or changing the history cap with unchanged pair counts
 does not change the graph identity. Old manifests are rebuilt on next use.
 
-Frozen runs, remote code, scientific configurations and results are not migrated
-by this change. Record the selected weighting with any future experiment; do not
+Record the selected weighting with each experiment; do not
 compare different modes as if the only changed factor were logQ.
 
 ## Checks independent of a particular dataset
