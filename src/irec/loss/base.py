@@ -3,6 +3,7 @@
 from irec.utils import MetaParent
 import copy
 import math
+import numbers
 import torch
 import torch.nn as nn
 
@@ -13,6 +14,16 @@ class BaseLoss(metaclass=MetaParent):
 
 class TorchLoss(BaseLoss, nn.Module):
     pass
+
+
+def validate_temperature(temperature):
+    if (
+        isinstance(temperature, bool)
+        or not isinstance(temperature, numbers.Real)
+        or not math.isfinite(temperature)
+        or temperature <= 0
+    ):
+        raise ValueError('Loss temperature must be positive and finite')
 
 
 class CompositeLoss(TorchLoss, config_name='composite'):

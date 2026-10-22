@@ -262,6 +262,7 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
     def forward(self, inputs):
         all_sample_events = inputs['{}.ids'.format(self._sequence_prefix)]  # (all_batch_events)
         all_sample_lengths = inputs['{}.length'.format(self._sequence_prefix)]  # (batch_size)
+        self._validate_sequence_inputs(all_sample_events, all_sample_lengths)
         user_ids = inputs['{}.ids'.format(self._user_prefix)]  # (batch_size)
 
         embeddings = self._item_embeddings(

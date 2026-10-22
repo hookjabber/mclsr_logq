@@ -11,8 +11,8 @@ Formulas and the comparison with the released RecSys 2025 implementation: VERIFI
 
 import torch
 
-from .base import TorchLoss
-from .counts import load_counts_artifact
+from .base import TorchLoss, validate_temperature
+from .counts import counts_to_probabilities, load_counts_artifact
 
 
 class InBatchLogQLoss(TorchLoss, config_name='mclsr_logq_inbatch'):
@@ -90,6 +90,7 @@ class InBatchLogQLoss(TorchLoss, config_name='mclsr_logq_inbatch'):
         if variant != 'negatives_only' and self._leave_own_out:
             raise ValueError('leave_own_out is only defined for the negatives_only variant')
         self._normalize_embeddings = normalize_embeddings
+        validate_temperature(temperature)
         self._temperature = temperature
 
         counts, _ = load_counts_artifact(
@@ -98,8 +99,7 @@ class InBatchLogQLoss(TorchLoss, config_name='mclsr_logq_inbatch'):
             expected_max_len=expected_counts_max_len,
         )
 
-        counts_tensor = torch.tensor(counts, dtype=torch.float32)
-        probs = torch.clamp(counts_tensor / counts_tensor.sum(), min=1e-10)
+        probs = torch.from_numpy(counts_to_probabilities(counts))
         log_q = torch.log(probs)
         self.register_buffer('_log_q_table', log_q)
         self.register_buffer('_prob_table', probs)
@@ -329,11 +329,9 @@ class SampledLogQLoss(TorchLoss, config_name='mclsr_logq_special'):
         # Load global item frequencies to calculate sampling probabilities (p_j)
         counts, _ = load_counts_artifact(path_to_item_counts)
 
-        counts_tensor = torch.tensor(counts, dtype=torch.float32)
-
         # Calculate log-probabilities.
         # Clamp used for numerical stability to avoid log(0) resulting in NaN.
-        probs = torch.clamp(counts_tensor / counts_tensor.sum(), min=1e-10)
+        probs = torch.from_numpy(counts_to_probabilities(counts))
         log_q = torch.log(probs)
 
         # register_buffer ensures the lookup table is moved to the correct

@@ -6,6 +6,22 @@ import pickle
 import numpy as np
 
 
+def counts_to_probabilities(counts, denominator=None):
+    count_array = np.asarray(counts, dtype=np.float64)
+    if denominator is None:
+        denominator = count_array.sum()
+    denominator_array = np.asarray(denominator)
+    if (
+        denominator_array.ndim != 0
+        or denominator_array.dtype.kind not in 'iuf'
+        or not np.isfinite(denominator_array)
+        or denominator_array <= 0
+        or (count_array > denominator_array).any()
+    ):
+        raise ValueError('Invalid counts denominator: expected a positive finite scalar at least every count')
+    return np.clip(count_array / denominator_array, 1e-10, 1.0).astype(np.float32)
+
+
 def load_counts_artifact(path, expected_role=None, expected_max_len=None):
     """Load a counts table: either a bare array (legacy) or a metadata dict
     {'counts', 'denominator', 'role', 'max_len', 'source', 'source_sha256'}.

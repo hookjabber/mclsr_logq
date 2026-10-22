@@ -14,7 +14,7 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 from prepare_dataset import write_files
 
 
-def _run_counts(input_path, output_dir, max_len=None):
+def _run_counts(input_path, output_dir, max_len=None, num_items=25):
     target_path = output_dir / 'target_counts.pkl'
     context_path = output_dir / 'context_counts.pkl'
     command = [
@@ -23,7 +23,7 @@ def _run_counts(input_path, output_dir, max_len=None):
         '--input',
         str(input_path),
         '--num_items',
-        '25',
+        str(num_items),
         '--target_output',
         str(target_path),
         '--context_output',
@@ -143,8 +143,8 @@ def test_role_counts_reject_invalid_manifest(tmp_path, manifest):
     assert not context_path.exists()
 
 
-@pytest.mark.parametrize('max_len', [0, -1])
-def test_role_counts_reject_nonpositive_explicit_length(tmp_path, max_len):
+@pytest.mark.parametrize('max_len', [0, -1, 1])
+def test_role_counts_require_history_and_target_capacity(tmp_path, max_len):
     input_path = tmp_path / 'train_mclsr.txt'
     input_path.write_text('1 1 2 3\n')
     result, target_path, context_path = _run_counts(input_path, tmp_path, max_len)
@@ -152,6 +152,74 @@ def test_role_counts_reject_nonpositive_explicit_length(tmp_path, max_len):
     assert 'max_len' in result.stderr
     assert not target_path.exists()
     assert not context_path.exists()
+
+
+@pytest.mark.parametrize(
+    'row', ['1', '1 2', '1 0 2', '1 -1 2', '1 26 2', '1 2 0', '1 2 -1', '1 2 26', '-1 1 2', 'user 1 2']
+)
+def test_role_counts_reject_malformed_rows_before_writing_artifacts(tmp_path, row):
+    input_path = tmp_path / 'train_mclsr.txt'
+    input_path.write_text('1 1 2\n' + row + '\n')
+    result, target_path, context_path = _run_counts(input_path, tmp_path)
+    assert result.returncode != 0
+    assert 'line 2' in result.stderr
+    assert not target_path.exists()
+    assert not context_path.exists()
+
+
+def test_role_counts_legacy_crop_ignores_unconsumed_prefix_ids(tmp_path):
+    input_path = tmp_path / 'train_mclsr.txt'
+    input_path.write_text('0 0 90 1 2\n')
+    result, target_path, context_path = _run_counts(input_path, tmp_path, max_len=2)
+    assert result.returncode == 0, result.stdout + result.stderr
+    for output_path, expected_id in [(target_path, 2), (context_path, 1)]:
+        with output_path.open('rb') as source:
+            artifact = pickle.load(source)
+        assert artifact['counts'][expected_id] == artifact['counts'].sum() == 1
+
+
+@pytest.mark.parametrize('num_items', [0, -1])
+def test_role_counts_require_positive_catalogue_size(tmp_path, num_items):
+    input_path = tmp_path / 'train_mclsr.txt'
+    input_path.write_text('1 1 2\n')
+    result, target_path, context_path = _run_counts(input_path, tmp_path, num_items=num_items)
+    assert result.returncode != 0
+    assert 'num_items' in result.stderr
+    assert not target_path.exists()
+    assert not context_path.exists()
+
+
+@pytest.mark.parametrize('contents', ['', '\n \n'])
+def test_role_counts_reject_empty_source(tmp_path, contents):
+    input_path = tmp_path / 'train_mclsr.txt'
+    input_path.write_text(contents)
+    result, target_path, context_path = _run_counts(input_path, tmp_path)
+    assert result.returncode != 0
+    assert 'empty' in result.stderr
+    assert not target_path.exists()
+    assert not context_path.exists()
+
+
+def test_role_counts_use_integer_counters_and_unique_context_per_row(tmp_path):
+    input_path = tmp_path / 'train_mclsr.txt'
+    input_path.write_text('1 1 1 2\n1 1 2 2\n2 2 3\n')
+    result, target_path, context_path = _run_counts(input_path, tmp_path)
+    assert result.returncode == 0, result.stdout + result.stderr
+    for output_path, expected in [(target_path, [0, 0, 2, 1]), (context_path, [0, 2, 2, 0])]:
+        with output_path.open('rb') as source:
+            artifact = pickle.load(source)
+        assert artifact['counts'].dtype == np.int64
+        np.testing.assert_array_equal(artifact['counts'][:4], expected)
+        assert artifact['denominator'] == artifact['num_lines'] == 3
+
+
+def test_role_counts_preserve_legacy_zero_user_labels(tmp_path):
+    input_path = tmp_path / 'train_mclsr.txt'
+    input_path.write_text('0 1 2\n')
+    result, target_path, context_path = _run_counts(input_path, tmp_path)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert target_path.exists()
+    assert context_path.exists()
 
 
 def test_role_counts_reject_incomplete_preprocessing(tmp_path):

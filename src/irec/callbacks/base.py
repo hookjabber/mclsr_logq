@@ -170,6 +170,9 @@ class InferenceCallback(BaseCallback):
                     if self._loss_prefix is not None:
                         running_params[self._loss_prefix] += batch[self._loss_prefix].item()
 
+            if any(not values for values in running_params.values()):
+                raise ValueError(f'{self._get_name()} evaluation produced no metric values')
+
             for metric_name, metric_function in self._metrics.items():
                 if isinstance(metric_function, StatefullMetric):
                     running_params[metric_name] = metric_function.reduce(

@@ -22,6 +22,13 @@ class BaseModel(metaclass=MetaParent):
 class TorchModel(nn.Module, BaseModel):
     """Registry root of the torch models: shared weight initialisation and the last-position gather."""
 
+    @staticmethod
+    def _validate_sequence_inputs(events, lengths):
+        if lengths.numel() == 0 or (lengths <= 0).any():
+            raise ValueError('non-empty histories require positive sequence lengths')
+        if lengths.sum().item() != events.numel():
+            raise ValueError('sequence lengths must sum to the number of events')
+
     def _rank_catalogue(self, scores):
         if type(self._eval_top_k) is not int or not 1 <= self._eval_top_k <= self._num_items:
             raise ValueError(f'eval_top_k must be a positive integer at most num_items={self._num_items}')
@@ -126,6 +133,7 @@ class SequentialTorchModel(TorchModel):
         )
 
     def _apply_sequential_encoder(self, events, lengths):
+        self._validate_sequence_inputs(events, lengths)
         embeddings = self._item_embeddings(
             events,
         )  # (all_batch_events, embedding_dim)

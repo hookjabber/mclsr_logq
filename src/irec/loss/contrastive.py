@@ -11,8 +11,8 @@ import pickle
 import torch
 import torch.nn as nn
 
-from .base import TorchLoss
-from .counts import load_counts_artifact
+from .base import TorchLoss, validate_temperature
+from .counts import counts_to_probabilities, load_counts_artifact
 
 
 class FpsLoss(TorchLoss, config_name='fps'):
@@ -30,6 +30,7 @@ class FpsLoss(TorchLoss, config_name='fps'):
         super().__init__()
         self._fst_embeddings_prefix = fst_embeddings_prefix
         self._snd_embeddings_prefix = snd_embeddings_prefix
+        validate_temperature(tau)
         self._tau = tau
         self._loss_function = nn.CrossEntropyLoss(
             reduction='mean' if use_mean else 'sum',
@@ -214,6 +215,7 @@ class FpsLogQLoss(TorchLoss, config_name='fps_logq'):
         self._fst_embeddings_prefix = fst_embeddings_prefix
         self._snd_embeddings_prefix = snd_embeddings_prefix
         self._ids_prefix = ids_prefix
+        validate_temperature(tau)
         self._tau = tau
         self._similarity = similarity
         # keep only the zero-mean part of the correction: removes the uniform
@@ -249,7 +251,6 @@ class FpsLogQLoss(TorchLoss, config_name='fps_logq'):
             expected_max_len=expected_counts_max_len,
         )
 
-        counts_tensor = torch.tensor(counts, dtype=torch.float32)
         # counts_denominator overrides the sum for tables whose natural unit is
         # not an event share — e.g. line-inclusion counts, where q(v) must be
         # count(v) / num_lines (probability a random LINE includes v), not
@@ -257,6 +258,12 @@ class FpsLogQLoss(TorchLoss, config_name='fps_logq'):
         # its own denominator; an explicit config value must then AGREE with it
         # (guards against silently pairing a stale number with new data).
         artifact_denominator = artifact_meta.get('denominator')
+        probs = torch.from_numpy(
+            counts_to_probabilities(
+                counts,
+                artifact_denominator if counts_denominator is None else counts_denominator,
+            )
+        )
         if (
             counts_denominator is not None
             and artifact_denominator is not None
@@ -269,10 +276,6 @@ class FpsLogQLoss(TorchLoss, config_name='fps_logq'):
                     path_to_counts,
                 )
             )
-        if counts_denominator is None:
-            counts_denominator = artifact_denominator
-        denominator = counts_tensor.sum() if counts_denominator is None else float(counts_denominator)
-        probs = torch.clamp(counts_tensor / denominator, min=1e-10, max=1.0)
         self.register_buffer('_prob_table', probs)
         self.register_buffer('_log_q_table', torch.log(probs))
 
@@ -572,6 +575,7 @@ class MatchedContrastiveFullSoftmaxLoss(
         self._fst_table_prefix = fst_table_prefix
         self._snd_table_prefix = snd_table_prefix
         self._ids_prefix = ids_prefix
+        validate_temperature(tau)
         self._tau = tau
         self._loss_function = nn.CrossEntropyLoss(
             reduction='mean' if use_mean else 'sum',
@@ -664,14 +668,15 @@ class MatchedContrastiveFullSoftmaxLoss(
 
 class ContrastiveFullSoftmaxLoss(TorchLoss, config_name='contrastive_full_softmax'):
     """
-    Exact full-catalog contrastive anchor.
+    Full-catalog cross-view contrastive control.
 
     Batch anchors from one view are contrasted against the FULL projected
     table of the other view (all users or all items): the positive is the
     anchor's own row in the table, every other entity is a negative. No
-    sampling and hence no sampling bias — this is the gold standard that the
-    in-batch contrastive losses approximate. Padding (index 0) and mask
-    (last index) columns are excluded from the softmax.
+    sampling is performed. This single cross-view objective differs from the
+    two-view candidate pool and scaling of FpsLoss; it is not an interchangeable
+    reference for every in-batch objective. Padding (index 0) and mask (last index)
+    columns are excluded from the softmax.
     """
 
     def __init__(
@@ -688,6 +693,7 @@ class ContrastiveFullSoftmaxLoss(TorchLoss, config_name='contrastive_full_softma
         self._anchors_prefix = anchors_prefix
         self._table_prefix = table_prefix
         self._ids_prefix = ids_prefix
+        validate_temperature(tau)
         self._tau = tau
         self._normalize_embeddings = normalize_embeddings
         self._loss_function = nn.CrossEntropyLoss(

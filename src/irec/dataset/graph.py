@@ -398,8 +398,8 @@ class GraphDataset(BaseDataset, config_name='graph'):
     @staticmethod
     def _convert_sp_mat_to_sp_tensor(X):
         coo = X.tocoo().astype(np.float32)
-        row = torch.Tensor(coo.row).long()
-        col = torch.Tensor(coo.col).long()
+        row = torch.as_tensor(coo.row, dtype=torch.long)
+        col = torch.as_tensor(coo.col, dtype=torch.long)
         index = torch.stack([row, col])
         data = torch.FloatTensor(coo.data)
         return torch.sparse_coo_tensor(index, data, torch.Size(coo.shape))

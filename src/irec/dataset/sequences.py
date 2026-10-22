@@ -22,6 +22,9 @@ logger = logging.getLogger(__name__)
 def _sequence_lengths(config, data_dir):
     if os.path.exists(os.path.join(data_dir, '.preprocessing-in-progress')):
         raise ValueError('dataset preprocessing is incomplete; use a new completed dataset directory')
+    expected_protocol = config.get('expected_protocol')
+    if expected_protocol is not None and expected_protocol != 'windowed-v2':
+        raise ValueError('expected_protocol must be windowed-v2 when specified')
     manifest_path = os.path.join(data_dir, 'preprocessing.json')
     manifest = {}
     if os.path.exists(manifest_path):
@@ -44,6 +47,8 @@ def _sequence_lengths(config, data_dir):
         file_hashes = manifest.get('files_sha256')
         if not isinstance(file_hashes, dict) or set(file_hashes) != set(filenames):
             raise ValueError('preprocessing manifest must identify all six dataset file hashes')
+    if expected_protocol is not None and not manifest:
+        raise ValueError('expected_protocol requires a windowed-v2 preprocessing manifest')
     history_length = config.get('max_history_length')
     if history_length is None:
         history_length = manifest.get('max_history_length')
@@ -248,9 +253,17 @@ class SequenceDataset(BaseDataset, config_name='sequence'):
         cache_path = os.path.join(dir_path, '{}.pkl'.format(part))
 
         if use_cached and os.path.exists(cache_path):
-            logger.info('Loading cached dataset from {}'.format(cache_path))
             with open(cache_path, 'rb') as f:
-                return pickle.load(f)
+                cached = pickle.load(f)
+            with open(os.path.join(dir_path, '{}.txt'.format(part)), 'rb') as source:
+                source_sha256 = hashlib.file_digest(source, 'sha256').hexdigest()
+            if (
+                isinstance(cached, dict)
+                and cached.get('source_sha256') == source_sha256
+                and cached.get('max_sequence_length') == max_sequence_length
+            ):
+                logger.info('Loading cached dataset from {}'.format(cache_path))
+                return cached['dataset']
 
         return cls._build_and_cache_dataset(dir_path, part, max_sequence_length, cache_path, use_cached)
 
@@ -260,8 +273,12 @@ class SequenceDataset(BaseDataset, config_name='sequence'):
         dataset_path = os.path.join(dir_path, '{}.txt'.format(part))
         logger.info('Creating a dataset from {}...'.format(dataset_path))
 
-        with open(dataset_path, 'r') as f:
-            data = f.readlines()
+        source_hash = hashlib.sha256()
+        data = []
+        with open(dataset_path, 'rb') as source:
+            for line in source:
+                source_hash.update(line)
+                data.append(line.decode('utf-8'))
 
         sequence_info = cls._create_sequences(data, max_sequence_length)
         (
@@ -293,7 +310,11 @@ class SequenceDataset(BaseDataset, config_name='sequence'):
 
         with open(cache_path, 'wb') as dataset_file:
             pickle.dump(
-                (dataset, max_user_id, max_item_id, max_sequence_len),
+                {
+                    'source_sha256': source_hash.hexdigest(),
+                    'max_sequence_length': max_sequence_length,
+                    'dataset': (dataset, max_user_id, max_item_id, max_sequence_len),
+                },
                 dataset_file,
             )
 
