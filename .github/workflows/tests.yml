@@ -7,6 +7,12 @@ on:
 jobs:
   tests:
     runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: src
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      POLARS_MAX_THREADS: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -14,8 +20,21 @@ jobs:
           python-version: '3.12'
       - name: Install CPU dependencies
         run: |
-          pip install --index-url https://download.pytorch.org/whl/cpu torch==2.4.1
-          pip install numpy scipy tensorboard tqdm ruff pytest
+          python - <<'PY'
+          import subprocess
+          import sys
+          import tomllib
+          from pathlib import Path
+
+          packages = tomllib.loads(Path('uv.lock').read_text())['package']
+          versions = {package['name']: package['version'] for package in packages}
+          pip = [sys.executable, '-m', 'pip', 'install']
+          subprocess.check_call(
+              pip + ['--index-url', 'https://download.pytorch.org/whl/cpu', f"torch=={versions['torch']}"]
+          )
+          dependencies = ['numpy', 'scipy', 'tensorboard', 'tqdm', 'polars', 'ruff', 'pytest']
+          subprocess.check_call(pip + [f'{name}=={versions[name]}' for name in dependencies])
+          PY
       - name: Lint and format check
         run: ruff check src scripts tests && ruff format --check src scripts tests
       - name: Reference, config, runtime and end-to-end tests
