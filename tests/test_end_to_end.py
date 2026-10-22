@@ -17,6 +17,7 @@ import subprocess
 import sys
 
 import numpy as np
+import pytest
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 MAX_LEN_TRAIN = 20
@@ -142,6 +143,7 @@ def test_pipeline_end_to_end(tmp_path):
         assert 0.0 <= best['test'][metric] <= 1.0, metric
     assert best['test']['ndcg@5'] <= best['test']['ndcg@20'] <= best['test']['hit@20']
     assert report['step_limit'] == 48 and report['seed'] == 1 and 'torch_version' in report
+    assert report['optimizer_updates'] == 48
     checkpoint = os.path.join(workdir, best['checkpoint'])
     assert os.path.exists(checkpoint)
     with open(checkpoint, 'rb') as f:
@@ -153,3 +155,140 @@ def test_pipeline_end_to_end(tmp_path):
     assert again['results']['validation/ndcg@20']['step'] == best['step']
     for metric in ('ndcg@20', 'recall@20'):
         assert abs(again['results']['validation/ndcg@20']['test'][metric] - best['test'][metric]) < 1e-6, metric
+
+
+def test_windowed_v2_pipeline_end_to_end(tmp_path):
+    sys.path.insert(0, os.path.join(ROOT, 'scripts'))
+    import prepare_dataset
+
+    data_root = tmp_path / 'data'
+    data_dir = data_root / 'TinyV2'
+    sequences = [(user, [(user + offset) % 40 for offset in range(25)]) for user in range(30)]
+    train_users, valid_users, test_users = prepare_dataset.split_users(sequences)
+    prepare_dataset.write_files(
+        sequences, train_users, valid_users, test_users, data_dir, protocol='windowed-v2', max_history_length=20
+    )
+    counts_path = data_dir / 'item_target_counts.pkl'
+    subprocess.run(
+        [
+            sys.executable,
+            os.path.join(ROOT, 'scripts/generate_mclsr_role_counts.py'),
+            '--input',
+            str(data_dir / 'train_mclsr.txt'),
+            '--num_items',
+            '40',
+            '--max_len',
+            '21',
+            '--target_output',
+            str(counts_path),
+            '--context_output',
+            str(data_dir / 'item_context_counts.pkl'),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    config = _config(str(data_root), 'TinyV2', 40, steps=16)
+    config['experiment_name'] = 'e2e_v2_synthetic'
+    retrieval = config['loss']['losses'][0]
+    retrieval['path_to_item_counts'] = str(counts_path)
+    retrieval['expected_counts_role'] = 'target'
+    retrieval['expected_counts_max_len'] = 21
+    config['model']['share_il_projector'] = True
+    for loss in config['loss']['losses'][1:]:
+        loss['scheme'] = 'paper'
+        loss['normalize_embeddings'] = True
+    config_path = tmp_path / 'v2.json'
+    config_path.write_text(json.dumps(config))
+    report = _run(str(tmp_path / 'run'), str(config_path), str(tmp_path / 'report.json'), seed=1)
+    assert report['step_limit'] == 16
+    assert report['optimizer_updates'] == 16
+    best = report['results']['validation/ndcg@20']
+    assert all(np.isfinite(value) for value in best['test'].values())
+    provenance = json.load(open(report['provenance']['path']))
+    assert provenance['phase'] == 'before_training'
+    assert provenance['datasets'][0]['preprocessing_manifests']['preprocessing.json']['sha256']
+
+
+@pytest.mark.parametrize('weighting', ['binary', 'event_count'])
+def test_repeated_events_through_training_checkpoint_and_independent_metrics(tmp_path, weighting):
+    import math
+    import torch
+    from irec.dataloader.batch_processors import BasicBatchProcessor
+    from irec.dataset import BaseDataset
+    from irec.models import BaseModel
+
+    sys.path.insert(0, os.path.join(ROOT, 'scripts'))
+    import prepare_dataset
+
+    data_root = tmp_path / 'data'
+    data_dir = data_root / 'Repeats'
+    sequences = [(user, [user % 24, (user + 1) % 24, user % 24] * 4) for user in range(30)]
+    train_users, valid_users, test_users = prepare_dataset.split_users(sequences)
+    prepare_dataset.write_files(
+        sequences, train_users, valid_users, test_users, data_dir, protocol='windowed-v2', max_history_length=20
+    )
+    original_hashes = {file.name: hashlib.sha256(file.read_bytes()).hexdigest() for file in data_dir.glob('*.txt')}
+    counts_path = data_dir / 'item_target_counts.pkl'
+    subprocess.run(
+        [
+            sys.executable,
+            os.path.join(ROOT, 'scripts/generate_mclsr_role_counts.py'),
+            '--input',
+            str(data_dir / 'train_mclsr.txt'),
+            '--num_items',
+            '24',
+            '--target_output',
+            str(counts_path),
+            '--context_output',
+            str(data_dir / 'item_context_counts.pkl'),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    config = _config(str(data_root), 'Repeats', 24, steps=8)
+    config['experiment_name'] = 'repeated_events_validation'
+    config['dataset']['interaction_weighting'] = weighting
+    config['loss']['losses'][0].update(
+        path_to_item_counts=str(counts_path), expected_counts_role='target', expected_counts_max_len=21
+    )
+    config['model']['share_il_projector'] = True
+    for loss_config in config['loss']['losses'][1:]:
+        loss_config.update(scheme='paper', normalize_embeddings=True)
+    config_path = tmp_path / 'repeats.json'
+    config_path.write_text(json.dumps(config))
+    workdir = tmp_path / 'run'
+    report = _run(str(workdir), str(config_path), str(tmp_path / 'report.json'), seed=3)
+    assert report['optimizer_updates'] == report['step_limit'] == 8
+    selected = report['results']['validation/ndcg@20']
+    dataset = BaseDataset.create_from_config(config['dataset'])
+    model = BaseModel.create_from_config(config['model'], **dataset.meta).cpu().eval()
+    checkpoint = torch.load(workdir / selected['checkpoint'], map_location='cpu', weights_only=True)
+    model.load_state_dict(checkpoint)
+    test_sampler = dataset.get_samplers()[2]
+    independent = {name: [] for name in ('ndcg@5', 'ndcg@20', 'recall@20', 'hit@20')}
+    for index in range(len(test_sampler)):
+        sample = test_sampler[index]
+        relevant = set(sample['labels.ids'])
+        assert len(relevant) < sample['labels.length']
+        assert relevant.intersection(sample['item.ids'])
+        with torch.no_grad():
+            ranking = model(BasicBatchProcessor()([sample]))[0].tolist()
+        assert len(ranking) == len(set(ranking)) == 20
+        assert all(1 <= item <= 24 for item in ranking)
+        for cutoff in (5, 20):
+            weights = [1 / math.log2(position + 2) for position in range(cutoff)]
+            dcg = math.fsum(weight for item, weight in zip(ranking, weights) if item in relevant)
+            independent[f'ndcg@{cutoff}'].append(dcg / math.fsum(weights[: min(cutoff, len(relevant))]))
+        independent['recall@20'].append(len(set(ranking).intersection(relevant)) / len(relevant))
+        independent['hit@20'].append(float(bool(set(ranking).intersection(relevant))))
+    for name, values in independent.items():
+        assert selected['test'][name] == pytest.approx(math.fsum(values) / len(values), abs=2e-6)
+    assert original_hashes == {
+        file.name: hashlib.sha256(file.read_bytes()).hexdigest() for file in data_dir.glob('*.txt')
+    }
+    suffix = '' if weighting == 'binary' else '_event_count'
+    assert (data_dir / f'general_graph{suffix}_trainOnly.npz').exists()

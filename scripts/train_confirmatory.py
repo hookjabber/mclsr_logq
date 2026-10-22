@@ -13,7 +13,10 @@ Differences from the exploratory `train` entrypoint:
   results are reported, none is discarded);
 - the mandatory JSON report records validation value/step/epoch behind every
   selection, sha256 of the config / count-table artifacts / checkpoints, git
-  commit + dirty status and the torch version.
+  commit + dirty status and the torch version;
+- an exclusive JSON <output>.provenance sidecar captures the effective config,
+  source/input/lockfile hashes and environment BEFORE training; interrupted
+  runs retain their checkpoint reservation and must use a fresh namespace.
 
 Usage (one seed per invocation; loop seeds from the shell):
     python scripts/train_confirmatory.py --params configs/train/toys/03_graph.json \
@@ -26,13 +29,13 @@ import copy
 import hashlib
 import json
 import os
-import subprocess
 import sys
 
 import torch
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from eval_checkpoint import evaluate, get_inference_config  # noqa: E402
+from run_provenance import begin_run, file_sha256, validate_imported_sources, write_report  # noqa: E402
 
 import irec.utils  # noqa: E402
 from irec.callbacks import BaseCallback  # noqa: E402
@@ -42,25 +45,7 @@ from irec.loss import BaseLoss  # noqa: E402
 from irec.models import BaseModel  # noqa: E402
 from irec.optimizer import BaseOptimizer  # noqa: E402
 from irec.train import atomic_save, train  # noqa: E402
-from irec.utils import DEVICE, ensure_checkpoints_dir, fix_random_seed  # noqa: E402
-
-
-def file_sha256(path):
-    digest = hashlib.sha256()
-    with open(path, 'rb') as f:
-        for chunk in iter(lambda: f.read(1 << 20), b''):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def git_commit():
-    try:
-        return subprocess.check_output(
-            ['git', 'rev-parse', 'HEAD'],
-            text=True,
-        ).strip()
-    except Exception:
-        return None
+from irec.utils import DEVICE, fix_random_seed  # noqa: E402
 
 
 def main():
@@ -79,8 +64,9 @@ def main():
     parser.add_argument('--output', required=True, help='json report path')
     args = parser.parse_args()
 
-    with open(args.params) as f:
-        config = json.load(f)
+    with open(args.params, 'rb') as source:
+        params_bytes = source.read()
+    config = json.loads(params_bytes)
 
     dataset_config = config.get('dataset', {})
     if dataset_config.get('use_train_data_only') is False:
@@ -120,13 +106,34 @@ def main():
         )
 
     config['seed'] = args.seed
+    config['train_steps_num'] = step_limit
+    config['best_metric'] = list(args.select)
     fix_random_seed(args.seed, deterministic=config.get('deterministic', False))
 
     experiment = '{}_confirm_seed{}'.format(config['experiment_name'], args.seed)
+    train_callback_config = copy.deepcopy(config['callback'])
+    kept = [cb for cb in train_callback_config['callbacks'] if cb['type'] != 'eval']
+    if len(kept) == len(train_callback_config['callbacks']):
+        raise SystemExit('no eval callback found in the config to strip')
+    inference_config = get_inference_config(config, 'eval')
+    train_callback_config['callbacks'] = kept
+    config['callback'] = train_callback_config
+    provenance = begin_run(
+        config=config,
+        params_path=args.params,
+        params_sha256=hashlib.sha256(params_bytes).hexdigest(),
+        output_path=args.output,
+        selection=args.select,
+        experiment=experiment,
+        evaluation_config=inference_config,
+    )
+    manifest = provenance['manifest']
     writer = irec.utils.tensorboards.TensorboardWriter(experiment)
     irec.utils.tensorboards.GLOBAL_TENSORBOARD_WRITER = writer
+    logged_config = copy.deepcopy(manifest['resolved_config'])
+    logged_config['callback']['callbacks'].append(manifest['evaluation_config'])
     with open(os.path.join(writer.log_dir, 'config.json'), 'w') as f:
-        json.dump(config, f, indent=2)
+        json.dump(logged_config, f, indent=2)
 
     dataset = BaseDataset.create_from_config(config['dataset'])
     train_sampler, validation_sampler, test_sampler = dataset.get_samplers()
@@ -140,13 +147,6 @@ def main():
         dataset=validation_sampler,
         **dataset.meta,
     )
-
-    # the test callback never runs during confirmatory training
-    train_callback_config = copy.deepcopy(config['callback'])
-    kept = [cb for cb in train_callback_config['callbacks'] if cb['type'] != 'eval']
-    if len(kept) == len(train_callback_config['callbacks']):
-        raise SystemExit('no eval callback found in the config to strip')
-    train_callback_config['callbacks'] = kept
 
     model = BaseModel.create_from_config(config['model'], **dataset.meta).to(DEVICE)
     loss_function = BaseLoss.create_from_config(config['loss'])
@@ -167,18 +167,26 @@ def main():
         **dataset.meta,
     )
 
-    ensure_checkpoints_dir()
-
     def checkpoint_path(metric_name):
         slug = metric_name.replace('/', '_').replace('@', '_at_')
         return './checkpoints/{}_best_{}.pth'.format(experiment, slug)
+
+    validate_imported_sources(manifest['source']['root'])
+    optimizer_updates = 0
+
+    def counted_callback(batch, step):
+        nonlocal optimizer_updates
+        if step != optimizer_updates:
+            raise RuntimeError('training update counter is not contiguous')
+        callback(batch, step)
+        optimizer_updates += 1
 
     best_checkpoints = train(
         dataloader=train_dataloader,
         model=model,
         optimizer=optimizer,
         loss_function=loss_function,
-        callback=callback,
+        callback=counted_callback,
         epoch_cnt=config.get('train_epochs_num'),
         step_cnt=step_limit,
         best_metric=args.select,
@@ -204,42 +212,18 @@ def main():
         **dataset.meta,
     )
 
-    inference_config = get_inference_config(config, 'eval')
-    artifact_hashes = {}
-
-    def collect_paths(node):
-        if isinstance(node, dict):
-            for key, value in node.items():
-                if isinstance(value, str) and key.startswith('path_to') and os.path.isfile(value):
-                    artifact_hashes[value] = file_sha256(value)
-                else:
-                    collect_paths(value)
-        elif isinstance(node, list):
-            for item in node:
-                collect_paths(item)
-
-    collect_paths(config)
-
-    try:
-        dirty = bool(
-            subprocess.check_output(
-                ['git', 'status', '--porcelain'],
-                text=True,
-            ).strip()
-        )
-    except Exception:
-        dirty = None
-
     report = {
         'experiment': experiment,
         'params': args.params,
-        'params_sha256': file_sha256(args.params),
-        'artifact_sha256': artifact_hashes,
+        'params_sha256': manifest['params']['sha256'],
+        'artifact_sha256': {path: artifact['sha256'] for path, artifact in manifest['artifacts'].items()},
         'seed': args.seed,
         'step_limit': step_limit,
-        'git_commit': git_commit(),
-        'git_dirty': dirty,
-        'torch_version': torch.__version__,
+        'optimizer_updates': optimizer_updates,
+        'git_commit': manifest['source']['git_commit'],
+        'git_dirty': manifest['source']['git_dirty'],
+        'torch_version': manifest['environment']['torch_version'],
+        'provenance': {'path': provenance['path'], 'sha256': provenance['sha256']},
         'protocol': 'one test evaluation per pre-registered '
         'validation-selected checkpoint; shared no-progress '
         'patience across selection metrics',
@@ -273,9 +257,7 @@ def main():
         )
 
     if args.output:
-        os.makedirs(os.path.dirname(args.output) or '.', exist_ok=True)
-        with open(args.output, 'w') as f:
-            json.dump(report, f, indent=2)
+        write_report(args.output, report)
         print('report ->', args.output)
 
 
