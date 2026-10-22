@@ -237,7 +237,8 @@ def main():
     for name, diff, tol, ok in results:
         print(f'{"OK  " if ok else "FAIL"} {name}  ({diff:.2e})')
     print(f'{sum(ok for *_, ok in results)}/{len(results)} checks passed')
+    return 0 if results and all(ok for *_, ok in results) else 1
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())

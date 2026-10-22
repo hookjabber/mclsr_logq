@@ -1,12 +1,26 @@
-"""The three graphs of MCLSR (paper §3.2) built from the training pairs only.
+"""The three graphs of MCLSR (paper §3.2) built from training interactions.
 
 User-item bipartite adjacency with the symmetric normalisation of eq. 1; user-user and item-item
 co-action graphs (R Rᵀ and Rᵀ R with the diagonal removed) restricted to the 50 strongest
 neighbours of every node, normalised the same way. Graphs are cached as ``.npz`` next to the data;
-``scripts/verify_graphs.py`` recomputes them independently.
+``scripts/verify_graphs.py`` verifies the historical binary/legacy mode only.
+
+``interaction_weighting='binary'`` preserves the study's presence-based graphs.
+``'event_count'`` uses canonical windowed-v2 events, not occurrences in overlapping
+training rows, for R and therefore for both co-action products. It is train-only.
+
+Cache filenames remain compatible with the verification scripts. Each archive includes a
+versioned manifest of its interaction content, options and dimensions and is replaced atomically.
+Legacy archives without this provenance are rebuilt.
 """
 
-from collections import defaultdict
+from collections import Counter, defaultdict
+from numbers import Integral
+import hashlib
+import json
+import tempfile
+import zipfile
+import zlib
 from tqdm import tqdm
 from irec.utils import DEVICE
 import torch
@@ -18,6 +32,7 @@ import logging
 from .base import BaseDataset
 
 logger = logging.getLogger(__name__)
+_GRAPH_BUILDER_VERSION = 2
 
 
 class GraphDataset(BaseDataset, config_name='graph'):
@@ -31,18 +46,36 @@ class GraphDataset(BaseDataset, config_name='graph'):
         use_user_graph=False,
         use_item_graph=False,
         neighborhood_size=None,
+        interaction_weighting='binary',
     ):
+        if interaction_weighting not in ('binary', 'event_count'):
+            raise ValueError("interaction_weighting must be 'binary' or 'event_count'")
+        if interaction_weighting == 'event_count' and not use_train_data_only:
+            raise ValueError('event_count graphs require train-only data')
+        if neighborhood_size is not None and (
+            not isinstance(neighborhood_size, Integral) or isinstance(neighborhood_size, bool) or neighborhood_size < 1
+        ):
+            raise ValueError('neighborhood_size must be a positive integer or None')
         self._dataset = dataset
         self._graph_dir_path = graph_dir_path
         self._use_train_data_only = use_train_data_only
         self._use_user_graph = use_user_graph
         self._use_item_graph = use_item_graph
         self._neighborhood_size = neighborhood_size
+        self._interaction_weighting = interaction_weighting
+        self._weight_suffix = '' if interaction_weighting == 'binary' else '_event_count'
 
         self._num_users = dataset.num_users
         self._num_items = dataset.num_items
 
         train_sampler, validation_sampler, test_sampler = dataset.get_samplers()
+
+        canonical_events = None
+        if interaction_weighting == 'event_count' or getattr(dataset, '_train_event_source', None) is not None:
+            event_source = getattr(dataset, 'get_train_event_sequences', None)
+            if not callable(event_source):
+                raise ValueError('canonical windowed-v2 MCLSR event sequences are required')
+            canonical_events = event_source()
 
         interactions_data = self._collect_interactions(train_sampler, validation_sampler, test_sampler)
         train_interactions = interactions_data['train_interactions']
@@ -54,6 +87,21 @@ class GraphDataset(BaseDataset, config_name='graph'):
         self._train_interactions = np.array(train_interactions)
         self._train_user_interactions = np.array(train_user_interactions)
         self._train_item_interactions = np.array(train_item_interactions)
+
+        self._interaction_counts = Counter(dict.fromkeys(train_interactions, 1))
+        if interaction_weighting == 'event_count':
+            self._interaction_counts = Counter(
+                (user_id, item_id) for user_id, items in canonical_events for item_id in items
+            )
+            if self._interaction_counts.keys() != set(train_interactions):
+                raise ValueError('canonical event support differs from training window support')
+
+        cache_interactions = np.asarray(train_interactions, dtype='<i8').reshape(-1, 2)
+        interaction_order = np.lexsort((cache_interactions[:, 1], cache_interactions[:, 0]))
+        if interaction_weighting == 'event_count':
+            weights = np.asarray([self._interaction_counts[pair] for pair in train_interactions], dtype='<i8')
+            cache_interactions = np.column_stack((cache_interactions, weights))
+        self._interactions_digest = hashlib.sha256(cache_interactions[interaction_order]).hexdigest()
 
         self._graph = self._build_or_load_bipartite_graph(
             graph_dir_path, train_user_interactions, train_item_interactions
@@ -100,17 +148,19 @@ class GraphDataset(BaseDataset, config_name='graph'):
         # co-occurrence counts, and keep only the top 50. All other connections are removed from the graph.
         k_suffix = f'k{self._neighborhood_size}' if self._neighborhood_size is not None else 'full'
         train_suffix = 'trainOnly' if self._use_train_data_only else 'withValTest'
-        filename = f'{entity_type}_graph_{k_suffix}_{train_suffix}.npz'
+        filename = f'{entity_type}_graph_{k_suffix}{self._weight_suffix}_{train_suffix}.npz'
         path_to_graph = os.path.join(self._graph_dir_path, filename)
 
         is_user_graph = entity_type == 'user'
         num_entities = self._num_users if is_user_graph else self._num_items
 
-        if os.path.exists(path_to_graph):
-            graph_matrix = sp.load_npz(path_to_graph)
-        else:
+        shape = (num_entities + 2, num_entities + 2)
+        manifest = self._graph_cache_manifest(entity_type, shape)
+        graph_matrix = self._load_cached_graph(path_to_graph, manifest, shape)
+        if graph_matrix is None:
             interactions_fst = []
             interactions_snd = []
+            interaction_weights = []
             visited_user_item_pairs = set()
             # have to delete cause
             # 3.2 Graph Construction
@@ -139,9 +189,13 @@ class GraphDataset(BaseDataset, config_name='graph'):
                     # visited_entity_pairs.add(pair_key)
                     interactions_fst.append(source_entity)
                     interactions_snd.append(connected_entity)
+                    other_pair = (connected_entity, item_id) if is_user_graph else (user_id, connected_entity)
+                    interaction_weights.append(
+                        self._interaction_counts[(user_id, item_id)] * self._interaction_counts[other_pair]
+                    )
 
             connections = csr_matrix(
-                (np.ones(len(interactions_fst)), (interactions_fst, interactions_snd)),
+                (np.asarray(interaction_weights, dtype=float), (interactions_fst, interactions_snd)),
                 shape=(num_entities + 2, num_entities + 2),
             )
 
@@ -149,23 +203,31 @@ class GraphDataset(BaseDataset, config_name='graph'):
                 connections = self._filter_matrix_by_top_k(connections, self._neighborhood_size)
 
             graph_matrix = self.get_sparse_graph_layer(connections, num_entities + 2, num_entities + 2, biparite=False)
-            sp.save_npz(path_to_graph, graph_matrix)
+            self._save_cached_graph(path_to_graph, graph_matrix, manifest)
 
         return self._convert_sp_mat_to_sp_tensor(graph_matrix).coalesce().to(DEVICE)
 
     def _build_or_load_bipartite_graph(self, graph_dir_path, train_user_interactions, train_item_interactions):
         # path_to_graph = os.path.join(graph_dir_path, 'general_graph.npz')
         train_suffix = 'trainOnly' if self._use_train_data_only else 'withValTest'
-        filename = f'general_graph_{train_suffix}.npz'
+        filename = f'general_graph{self._weight_suffix}_{train_suffix}.npz'
         path_to_graph = os.path.join(graph_dir_path, filename)
 
-        if os.path.exists(path_to_graph):
-            graph_matrix = sp.load_npz(path_to_graph)
-        else:
+        num_nodes = self._num_users + self._num_items + 4
+        shape = (num_nodes, num_nodes)
+        manifest = self._graph_cache_manifest('general', shape)
+        graph_matrix = self._load_cached_graph(path_to_graph, manifest, shape)
+        if graph_matrix is None:
             # place ones only when co-occurrence happens
             user2item_connections = csr_matrix(
                 (
-                    np.ones(len(train_user_interactions)),
+                    np.asarray(
+                        [
+                            self._interaction_counts[pair]
+                            for pair in zip(train_user_interactions, train_item_interactions)
+                        ],
+                        dtype=float,
+                    ),
                     (train_user_interactions, train_item_interactions),
                 ),
                 shape=(self._num_users + 2, self._num_items + 2),
@@ -176,9 +238,79 @@ class GraphDataset(BaseDataset, config_name='graph'):
                 self._num_items + 2,
                 biparite=True,
             )
-            sp.save_npz(path_to_graph, graph_matrix)
+            self._save_cached_graph(path_to_graph, graph_matrix, manifest)
 
         return self._convert_sp_mat_to_sp_tensor(graph_matrix).coalesce().to(DEVICE)
+
+    def _graph_cache_manifest(self, entity_type, shape):
+        """Bump _GRAPH_BUILDER_VERSION whenever graph semantics or cache serialization change."""
+        return json.dumps(
+            {
+                'builder_version': _GRAPH_BUILDER_VERSION,
+                'interaction_weighting': self._interaction_weighting,
+                'interactions_sha256': self._interactions_digest,
+                'entity_type': entity_type,
+                'num_users': int(self._num_users),
+                'num_items': int(self._num_items),
+                'shape': shape,
+                'use_train_data_only': bool(self._use_train_data_only),
+                'neighborhood_size': (
+                    int(self._neighborhood_size)
+                    if entity_type != 'general' and self._neighborhood_size is not None
+                    else None
+                ),
+            },
+            sort_keys=True,
+            separators=(',', ':'),
+        )
+
+    @staticmethod
+    def _load_cached_graph(path_to_graph, manifest, shape):
+        try:
+            with np.load(path_to_graph, allow_pickle=False) as cached:
+                if cached['cache_manifest'].item() != manifest:
+                    logger.info('Rebuilding graph cache with changed provenance: %s', path_to_graph)
+                    return None
+                if cached['format'].item() != b'csr' or tuple(cached['shape']) != shape:
+                    raise ValueError('Unexpected cached graph format or shape')
+                graph_matrix = csr_matrix((cached['data'], cached['indices'], cached['indptr']), shape=shape)
+                graph_matrix.check_format(full_check=True)
+                if not np.isfinite(graph_matrix.data).all():
+                    raise ValueError('Non-finite cached graph weights')
+                return graph_matrix
+        except FileNotFoundError:
+            return None
+        except (OSError, ValueError, KeyError, TypeError, EOFError, zipfile.BadZipFile, zlib.error) as error:
+            logger.warning('Rebuilding untrusted graph cache %s: %s', path_to_graph, error)
+            return None
+
+    @staticmethod
+    def _save_cached_graph(path_to_graph, graph_matrix, manifest):
+        temporary_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                dir=os.path.dirname(path_to_graph),
+                prefix=f'.{os.path.basename(path_to_graph)}.',
+                suffix='.tmp',
+                delete=False,
+            ) as cache_file:
+                temporary_path = cache_file.name
+                np.savez_compressed(
+                    cache_file,
+                    format=np.array(b'csr'),
+                    shape=graph_matrix.shape,
+                    data=graph_matrix.data,
+                    indices=graph_matrix.indices,
+                    indptr=graph_matrix.indptr,
+                    cache_manifest=np.array(manifest),
+                )
+                cache_file.flush()
+                os.fsync(cache_file.fileno())
+            os.replace(temporary_path, path_to_graph)
+            temporary_path = None
+        finally:
+            if temporary_path is not None:
+                os.unlink(temporary_path)
 
     def _collect_interactions(self, train_sampler, validation_sampler, test_sampler):
         train_interactions = []
@@ -194,6 +326,10 @@ class GraphDataset(BaseDataset, config_name='graph'):
 
         for sampler in samplers_to_process:
             for sample in sampler.dataset:
+                if 'item.ids' not in sample:
+                    raise ValueError(
+                        'unsupported graph sample: item.ids is required; raw evaluation history/target rows are not graph inputs'
+                    )
                 user_id = sample['user.ids'][0]
                 for item_id in sample['item.ids']:
                     if (user_id, item_id) not in visited_user_item_pairs:
@@ -224,6 +360,7 @@ class GraphDataset(BaseDataset, config_name='graph'):
             use_user_graph=config.get('use_user_graph', False),
             use_item_graph=config.get('use_item_graph', False),
             neighborhood_size=config.get('neighborhood_size', None),
+            interaction_weighting=config.get('interaction_weighting', 'binary'),
         )
 
     @staticmethod
@@ -269,6 +406,8 @@ class GraphDataset(BaseDataset, config_name='graph'):
 
     @staticmethod
     def _filter_matrix_by_top_k(matrix, k):
+        if not isinstance(k, Integral) or isinstance(k, bool) or k < 1:
+            raise ValueError('top-k must be a positive integer')
         mat = matrix.tolil()
 
         for i in range(mat.shape[0]):

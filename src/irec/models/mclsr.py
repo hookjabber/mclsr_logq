@@ -504,21 +504,4 @@ class MCLSRModel(TorchModel, config_name='mclsr'):
                 sequential_representation,  # I_s
                 candidate_embeddings,  # all h_v
             )  # (batch_size, num_items)
-            candidate_scores[:, 0] = -torch.inf
-            candidate_scores[:, self._num_items + 1 :] = -torch.inf
-            if self._eval_top_k > self._num_items:
-                raise ValueError(
-                    'eval_top_k={} is larger than num_items={}'.format(
-                        self._eval_top_k,
-                        self._num_items,
-                    ),
-                )
-
-            _, indices = torch.topk(
-                candidate_scores,
-                k=self._eval_top_k,
-                dim=-1,
-                largest=True,
-            )  # (batch_size, eval_top_k)
-
-            return indices
+            return self._rank_catalogue(candidate_scores)

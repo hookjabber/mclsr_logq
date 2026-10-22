@@ -22,6 +22,15 @@ class BaseModel(metaclass=MetaParent):
 class TorchModel(nn.Module, BaseModel):
     """Registry root of the torch models: shared weight initialisation and the last-position gather."""
 
+    def _rank_catalogue(self, scores):
+        if type(self._eval_top_k) is not int or not 1 <= self._eval_top_k <= self._num_items:
+            raise ValueError(f'eval_top_k must be a positive integer at most num_items={self._num_items}')
+        if not torch.isfinite(scores[:, 1 : self._num_items + 1]).all():
+            raise ValueError('catalogue ranking requires finite scores for every real item')
+        scores[:, 0] = -torch.inf
+        scores[:, self._num_items + 1 :] = -torch.inf
+        return torch.topk(scores, k=self._eval_top_k, dim=-1, largest=True).indices
+
     @torch.no_grad()
     def _init_weights(self, initializer_range):
         for key, value in self.named_parameters():

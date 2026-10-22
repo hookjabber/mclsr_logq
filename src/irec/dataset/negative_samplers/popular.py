@@ -1,4 +1,4 @@
-"""Popularity-proportional negative sampling with rejection."""
+"""Popularity-proportional unique negatives with bounded rejection."""
 
 import numpy as np
 from irec.dataset.negative_samplers.base import BaseNegativeSampler
@@ -16,6 +16,7 @@ class PopularNegativeSampler(BaseNegativeSampler, config_name='popular'):
         )
 
         self._item_ids, self._probs = self._calculate_item_probabilities()
+        self._support_items = set(self._item_ids.tolist())
 
     @classmethod
     def create_from_config(cls, _, **kwargs):
@@ -36,8 +37,8 @@ class PopularNegativeSampler(BaseNegativeSampler, config_name='popular'):
                 counts[item_id] += 1
 
         items = np.array(list(counts.keys()))
-        freqs = np.array(list(counts.values()), dtype=np.float32)
-        probabilities = freqs / freqs.sum()
+        freqs = np.array(list(counts.values()), dtype=np.float64)
+        probabilities = freqs / freqs.sum() if len(freqs) else freqs
 
         return items, probabilities
 
@@ -48,19 +49,29 @@ class PopularNegativeSampler(BaseNegativeSampler, config_name='popular'):
         For LogQ correction (Yi et al., 2019), we need a stochastic
         sampling process where p_j > 0 for all items in the distribution.
         """
-        user_id = sample['user.ids'][0]
-        seen = self._seen_items[user_id]
-
+        seen = self._sample_seen_items(sample)
+        available = len(self._support_items) - len(self._support_items.intersection(seen))
+        self.validate_request(num_negatives, available)
         negatives = set()
-        while len(negatives) < num_negatives:
-            sampled_ids = np.random.choice(
-                self._item_ids, size=num_negatives - len(negatives), p=self._probs, replace=True
-            )
+        attempts = 0
+        budget = max(32, 4 * num_negatives)
+        while len(negatives) < num_negatives and attempts < budget:
+            draw_count = min(num_negatives - len(negatives), budget - attempts)
+            sampled_ids = np.random.choice(self._item_ids, size=draw_count, p=self._probs, replace=True)
+            attempts += draw_count
 
             for idx in sampled_ids:
                 if idx not in seen:
                     negatives.add(idx)
                     if len(negatives) == num_negatives:
                         break
-
+        if len(negatives) < num_negatives:
+            eligible = np.array([item not in seen and item not in negatives for item in self._item_ids])
+            probabilities = self._probs[eligible]
+            probabilities = probabilities / probabilities.sum()
+            negatives.update(
+                np.random.choice(
+                    self._item_ids[eligible], size=num_negatives - len(negatives), replace=False, p=probabilities
+                )
+            )
         return list(negatives)

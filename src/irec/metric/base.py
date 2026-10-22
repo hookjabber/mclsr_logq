@@ -1,4 +1,8 @@
-"""Ranking metrics over the top-k index lists a model returns in eval mode; every metric yields one value per user."""
+"""Per-user ranking metrics with binary relevance over unique target items.
+
+Repeated target events do not create additional relevant catalogue items. Ranked
+predictions must be distinct positive IDs; padding is not an evaluation target.
+"""
 
 from irec.utils import MetaParent
 
@@ -14,148 +18,86 @@ class StatefullMetric(BaseMetric):
         raise NotImplementedError
 
 
-class MCLSRNDCGMetric(BaseMetric, config_name='mclsr-ndcg'):
-    """ndcg@k with the standard normalisation (ideal DCG over min(k, number of targets)); one value per user."""
-
+class _RankingMetric(BaseMetric):
     def __init__(self, k):
+        if type(k) is not int or k < 1:
+            raise ValueError('metric k must be a positive integer')
         self._k = k
 
-    def __call__(self, inputs, pred_prefix, labels_prefix):
+    def _rows(self, inputs, pred_prefix, labels_prefix):
         predictions = inputs[pred_prefix]
-        assert predictions.shape[1] >= self._k
-        predictions = predictions[:, : self._k]  # (batch_size, k)
-        labels_flat = inputs[f'{labels_prefix}.ids']  # (total_labels,)
-        labels_lengths = inputs[f'{labels_prefix}.length']  # (batch_size,)
-
-        assert predictions.shape[0] == labels_lengths.shape[0]
-
-        dcg_scores = []
+        labels = inputs[f'{labels_prefix}.ids']
+        lengths = inputs[f'{labels_prefix}.length']
+        if any(tensor.dtype not in (torch.int32, torch.int64) for tensor in (predictions, labels, lengths)):
+            raise ValueError('predictions, target IDs and target lengths must be integer tensors')
+        if predictions.ndim != 2 or predictions.shape[1] < self._k:
+            raise ValueError('predictions must contain at least k ranked items per user')
+        if labels.ndim != 1 or lengths.ndim != 1 or predictions.shape[0] != lengths.shape[0]:
+            raise ValueError('flat target IDs and per-user lengths must match the prediction batch')
+        if (lengths < 0).any() or int(lengths.sum()) != labels.numel():
+            raise ValueError('target lengths must be nonnegative and account for every target ID')
+        if (labels <= 0).any() or (predictions[:, : self._k] <= 0).any():
+            raise ValueError('ranking and target IDs must be positive, without padding')
         offset = 0
-        for i in range(predictions.shape[0]):
-            user_predictions = predictions[i]
-            num_user_labels = int(labels_lengths[i].item())
-            user_labels = labels_flat[offset : offset + num_user_labels]
-            offset += num_user_labels
-
-            hits_mask = torch.isin(user_predictions, user_labels)  # (k,) -> True/False
-
-            positions = torch.arange(2, self._k + 2, device=predictions.device)
-            weights = 1 / torch.log2(positions.float())
-            dcg = (hits_mask.float() * weights).sum()
-
-            num_ideal_hits = min(self._k, num_user_labels)
-            idcg_weights = weights[:num_ideal_hits]
-            idcg = idcg_weights.sum()
-
-            ndcg = dcg / idcg if idcg > 0 else torch.tensor(0.0)
-            dcg_scores.append(ndcg.cpu().item())
-
-        return dcg_scores
+        for row, length in zip(predictions[:, : self._k], lengths.tolist()):
+            if torch.unique(row).numel() != self._k:
+                raise ValueError('ranked predictions must contain unique item IDs')
+            relevant = torch.unique(labels[offset : offset + length])
+            offset += length
+            yield row, relevant
 
 
-class ComiRecNDCGMetric(BaseMetric, config_name='comirec-ndcg'):
-    """
-    NDCG with the ComiRec normalization (used by the MCLSR paper, Table 2):
-    IDCG is computed over the number of ACTUAL hits, not over the ideal
-    min(k, num_targets). Yields values >= the standard NDCG; needed for
-    apples-to-apples comparison with the paper's reported numbers.
-    """
-
-    def __init__(self, k):
-        self._k = k
+class MCLSRNDCGMetric(_RankingMetric, config_name='mclsr-ndcg'):
+    """Standard binary-relevance NDCG; ideal DCG uses min(k, unique targets)."""
 
     def __call__(self, inputs, pred_prefix, labels_prefix):
-        predictions = inputs[pred_prefix]
-        assert predictions.shape[1] >= self._k
-        predictions = predictions[:, : self._k]
-        labels_flat = inputs[f'{labels_prefix}.ids']
-        labels_lengths = inputs[f'{labels_prefix}.length']
-
-        assert predictions.shape[0] == labels_lengths.shape[0]
-
         scores = []
-        offset = 0
-        weights = 1 / torch.log2(
-            torch.arange(2, self._k + 2, device=predictions.device).float(),
-        )
-        for i in range(predictions.shape[0]):
-            num_user_labels = int(labels_lengths[i].item())
-            user_labels = labels_flat[offset : offset + num_user_labels]
-            offset += num_user_labels
-
-            hits_mask = torch.isin(predictions[i], user_labels)
-            num_hits = int(hits_mask.sum().item())
-            if num_hits == 0:
-                scores.append(0.0)
-                continue
-            dcg = (hits_mask.float() * weights).sum()
-            idcg = weights[:num_hits].sum()
-            scores.append((dcg / idcg).cpu().item())
-
+        for predictions, relevant in self._rows(inputs, pred_prefix, labels_prefix):
+            weights = 1 / torch.log2(torch.arange(2, self._k + 2, device=predictions.device).float())
+            hits = torch.isin(predictions, relevant)
+            dcg = (hits.float() * weights).sum()
+            ideal = weights[: min(self._k, relevant.numel())].sum()
+            scores.append((dcg / ideal).item() if relevant.numel() else 0.0)
         return scores
 
 
-class MCLSRRecallMetric(BaseMetric, config_name='mclsr-recall'):
-    """recall@k = hits among the top k / number of targets; one value per user."""
+class ComiRecNDCGMetric(_RankingMetric, config_name='comirec-ndcg'):
+    """Historical alternative: normalize DCG by actual hits, not all relevant items.
 
-    def __init__(self, k):
-        self._k = k
-
-    def __call__(self, inputs, pred_prefix, labels_prefix):
-        predictions = inputs[pred_prefix]
-        assert predictions.shape[1] >= self._k
-        predictions = predictions[:, : self._k]  # (batch_size, k)
-        labels_flat = inputs[f'{labels_prefix}.ids']  # (total_labels,)
-        labels_lengths = inputs[f'{labels_prefix}.length']  # (batch_size,)
-
-        assert predictions.shape[0] == labels_lengths.shape[0]
-
-        recall_scores = []
-        offset = 0
-        for i in range(predictions.shape[0]):
-            user_predictions = predictions[i]
-            num_user_labels = int(labels_lengths[i].item())
-            user_labels = labels_flat[offset : offset + num_user_labels]
-            offset += num_user_labels
-
-            hits = torch.isin(user_predictions, user_labels).sum().float()
-
-            recall = hits / num_user_labels if num_user_labels > 0 else torch.tensor(0.0)
-            recall_scores.append(recall.cpu().item())
-
-        return recall_scores
-
-
-class MCLSRHitRateMetric(BaseMetric, config_name='mclsr-hit'):
-    """hit@k = 1 if any target is among the top k; one value per user."""
-
-    def __init__(self, k):
-        self._k = k
+    This differs from standard NDCG. Exact equivalence to the original paper's
+    evaluator has not been established from the available author artifacts.
+    """
 
     def __call__(self, inputs, pred_prefix, labels_prefix):
-        predictions = inputs[pred_prefix]
-        assert predictions.shape[1] >= self._k
-        predictions = predictions[:, : self._k]  # (batch_size, k)
-        labels_flat = inputs[f'{labels_prefix}.ids']  # (total_labels,)
-        labels_lengths = inputs[f'{labels_prefix}.length']  # (batch_size,)
-
-        assert predictions.shape[0] == labels_lengths.shape[0]
-
-        hit_scores = []
-        offset = 0
-        for i in range(predictions.shape[0]):
-            user_predictions = predictions[i]
-            num_user_labels = int(labels_lengths[i].item())
-
-            if num_user_labels == 0:
-                hit_scores.append(0.0)
+        scores = []
+        for predictions, relevant in self._rows(inputs, pred_prefix, labels_prefix):
+            hits = torch.isin(predictions, relevant)
+            num_hits = int(hits.sum())
+            if not num_hits:
+                scores.append(0.0)
                 continue
+            weights = 1 / torch.log2(torch.arange(2, self._k + 2, device=predictions.device).float())
+            dcg = (hits.float() * weights).sum()
+            scores.append((dcg / weights[:num_hits].sum()).item())
+        return scores
 
-            user_labels = labels_flat[offset : offset + num_user_labels]
-            offset += num_user_labels
 
-            is_hit = torch.isin(user_predictions, user_labels).any()
+class MCLSRRecallMetric(_RankingMetric, config_name='mclsr-recall'):
+    """Recall@k = unique relevant items retrieved / unique target items."""
 
-            hit_scores.append(float(is_hit))
+    def __call__(self, inputs, pred_prefix, labels_prefix):
+        scores = []
+        for predictions, relevant in self._rows(inputs, pred_prefix, labels_prefix):
+            hits = torch.isin(predictions, relevant).sum().float()
+            scores.append((hits / relevant.numel()).item() if relevant.numel() else 0.0)
+        return scores
 
-        return hit_scores
+
+class MCLSRHitRateMetric(_RankingMetric, config_name='mclsr-hit'):
+    """Hit@k = 1 if any relevant item appears in the ranking; one value per user."""
+
+    def __call__(self, inputs, pred_prefix, labels_prefix):
+        return [
+            float(torch.isin(predictions, relevant).any())
+            for predictions, relevant in self._rows(inputs, pred_prefix, labels_prefix)
+        ]

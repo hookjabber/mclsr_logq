@@ -1,14 +1,42 @@
-# use
-# python scripts/generate_mclsr_role_counts.py --input ./data/Clothing/train_mclsr.txt \
-#     --num_items 23033 --max_len 20 \
-#     --target_output ./data/Clothing/item_target_counts.pkl \
-#     --context_output ./data/Clothing/item_context_counts.pkl
+"""Build role-exact logQ counts from an MCLSR ladder.
+
+With a sibling windowed-v2 preprocessing.json, infer the row cap as max_history_length + 1
+(history plus target). Without a manifest, retain the legacy default row cap of 20.
+An explicit --max_len must agree with the v2 manifest; legacy inputs allow an override.
+"""
 
 import argparse
 import hashlib
+import json
+from pathlib import Path
 import pickle
 
 import numpy as np
+
+
+def _resolve_max_len(input_path, max_len):
+    if max_len is not None and max_len < 1:
+        raise ValueError('--max_len must be a positive integer')
+    data_dir = Path(input_path).parent
+    if (data_dir / '.preprocessing-in-progress').exists():
+        raise ValueError('dataset preprocessing is incomplete')
+    manifest_path = data_dir / 'preprocessing.json'
+    if not manifest_path.exists():
+        return 20 if max_len is None else max_len
+    with manifest_path.open() as source:
+        manifest = json.load(source)
+    if not isinstance(manifest, dict) or manifest.get('protocol') != 'windowed-v2':
+        raise ValueError('unsupported preprocessing manifest protocol')
+    history_length = manifest.get('max_history_length')
+    if type(history_length) is not int or history_length < 1:
+        raise ValueError('preprocessing manifest requires a positive integer max_history_length')
+    row_length = history_length + 1
+    if max_len is not None and max_len != row_length:
+        raise ValueError(
+            f'--max_len={max_len} conflicts with windowed-v2 preprocessing manifest: '
+            f'max_history_length={history_length} requires --max_len={row_length} (history plus target)'
+        )
+    return row_length
 
 
 def main():
@@ -26,13 +54,17 @@ def main():
     parser.add_argument(
         '--max_len',
         type=int,
-        default=20,
-        help='max_sequence_length used in training (lines are cut '
-        'to the last max_len items before the target is split off)',
+        help='Row cap including the target, not just history. Inferred as max_history_length + 1 '
+        'from a sibling windowed-v2 preprocessing.json (history 20 means 21); an explicit value '
+        'must match that manifest. Without a manifest, defaults to legacy 20 and allows an override.',
     )
     parser.add_argument('--target_output', required=True)
     parser.add_argument('--context_output', required=True)
     args = parser.parse_args()
+    try:
+        args.max_len = _resolve_max_len(args.input, args.max_len)
+    except (ValueError, OSError) as error:
+        parser.error(str(error))
 
     size = args.num_items + 2
     target_counts = np.zeros(size, dtype=np.float32)

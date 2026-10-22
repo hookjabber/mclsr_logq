@@ -19,16 +19,18 @@ class InBatchLogQLoss(TorchLoss, config_name='mclsr_logq_inbatch'):
     """
     LogQ-corrected In-Batch Sampled Softmax Loss for MCLSR model.
 
-    Uses in-batch negatives: positive items of other users in the batch serve as negatives.
-    This naturally produces a popularity-proportional sampling distribution,
-    which LogQ correction precisely compensates.
+    Other batch rows' positive items provide candidate negatives. The count table
+    supplies a marginal item-proposal model, not the exact conditional proposal
+    after sampling rows without replacement and applying item/user identity masks.
+    The correction does not establish an unconditionally unbiased estimator.
 
-    LogQ correction is applied only to negatives (not to the positive).
+    The default `negatives_only` variant leaves the positive logit uncorrected;
+    `standard` and `corrected` select the other objective definitions below.
 
-    With `leave_own_out=True` the correction uses the leave-anchor-out
-    distribution q'_i(j) = q(j) / (1 - q(pos_i)): the false-negative mask
-    removes the anchor's own positive item from the candidate pool, so
-    in-batch negatives are effectively drawn from q', not from the marginal q.
+    With `leave_own_out=True`, q'_i(j) = q(j) / (1 - q(pos_i)) is an algebraic
+    leave-positive-out proposal approximation. It does not model the full batch
+    dependence, same-user exclusions, or exact inclusion probabilities of the
+    surviving negative pool. Masking alone does not make this q' exact.
     """
 
     def __init__(
@@ -158,18 +160,20 @@ class InBatchLogQLoss(TorchLoss, config_name='mclsr_logq_inbatch'):
             row_keep_log = torch.log(torch.clamp(1.0 - pos_mix, min=1e-10))
             negatives = (
                 scores - self._logq_lambda * log_q.unsqueeze(0) + self._logq_lambda * row_keep_log.unsqueeze(1)
-            ).masked_fill(invalid_c, -1e12)
+            ).masked_fill(invalid_c, -torch.inf)
+            has_negatives = (~invalid_c).any(dim=1)
+            negatives = negatives.masked_fill(~has_negatives.unsqueeze(1), 0.0)
             positive = scores.diagonal()
             log_sum_neg = torch.logsumexp(negatives, dim=1)
             per_example = log_sum_neg - positive
             num_valid = (~invalid_c).sum(dim=1).clamp(min=1).float()
             log_p_hat = positive - torch.logaddexp(positive, log_sum_neg - torch.log(num_valid))
             weight = (1.0 - torch.exp(log_p_hat)).detach()
-            return (weight * per_example).mean()
+            return torch.where(has_negatives, weight * per_example, torch.zeros_like(per_example)).mean()
         corrected = scores - self._logq_lambda * log_q.unsqueeze(0)
         if self._variant == 'negatives_only':
             corrected[rows, rows] += self._logq_lambda * log_q[:batch_size]  # positive uncorrected
-        corrected = corrected.masked_fill(invalid, -1e12)
+        corrected = corrected.masked_fill(invalid, -torch.inf)
         return torch.nn.functional.cross_entropy(corrected, rows)
 
     def _corrected_forward(self, all_scores, pos_ids, invalid_mask):
@@ -179,14 +183,16 @@ class InBatchLogQLoss(TorchLoss, config_name='mclsr_logq_inbatch'):
         row_keep_log = torch.log(torch.clamp(1.0 - self._prob_table[pos_ids], min=1e-10))  # log(1 - q(p_i))
         negatives = (
             all_scores - self._logq_lambda * log_q.unsqueeze(0) + self._logq_lambda * row_keep_log.unsqueeze(1)
-        ).masked_fill(invalid_mask, -1e12)  # (B, B), the diagonal is invalid: the positive leaves the denominator
+        ).masked_fill(invalid_mask, -torch.inf)  # (B, B), the diagonal is invalid: the positive leaves the denominator
+        has_negatives = (~invalid_mask).any(dim=1)
+        negatives = negatives.masked_fill(~has_negatives.unsqueeze(1), 0.0)
         positive = all_scores.diagonal()  # (B,), uncorrected (a constant shift does not change gradients)
         log_sum_neg = torch.logsumexp(negatives, dim=1)  # (B,)
         per_example = log_sum_neg - positive  # -log(e^{s_pos} / sum_neg e^{corrected})
         num_valid = (~invalid_mask).sum(dim=1).clamp(min=1).float()
         log_p_hat = positive - torch.logaddexp(positive, log_sum_neg - torch.log(num_valid))
         weight = (1.0 - torch.exp(log_p_hat)).detach()
-        return (weight * per_example).mean()
+        return torch.where(has_negatives, weight * per_example, torch.zeros_like(per_example)).mean()
 
     def _invalid_mask(self, inputs, pos_ids):
         """(B, B) mask of in-batch candidates that must not serve as negatives for a row:
@@ -213,7 +219,7 @@ class InBatchLogQLoss(TorchLoss, config_name='mclsr_logq_inbatch'):
             scores.diagonal().add_(self._logq_lambda * (log_q - row_keep_log))
         elif not self._correct_positive:
             scores.diagonal().add_(self._logq_lambda * log_q)
-        scores = scores.masked_fill(invalid, -1e12)
+        scores = scores.masked_fill(invalid, -torch.inf)
         labels = torch.arange(scores.size(0), device=scores.device)  # the positive sits on the diagonal
         return torch.nn.functional.cross_entropy(scores, labels)
 
@@ -280,8 +286,8 @@ class FullSoftmaxLoss(TorchLoss, config_name='full_softmax'):
         pos_ids = inputs[self._positive_ids_prefix]  # (B,)
 
         all_scores = torch.mm(queries, table.T)  # (B, num_items + 2)
-        all_scores[:, 0] = -1e12  # padding column
-        all_scores[:, -1] = -1e12  # mask-token column
+        all_scores[:, 0] = -torch.inf  # padding column
+        all_scores[:, -1] = -torch.inf  # mask-token column
 
         loss = torch.nn.functional.cross_entropy(all_scores, pos_ids)
 
@@ -365,7 +371,7 @@ class SampledLogQLoss(TorchLoss, config_name='mclsr_logq_special'):
         # 3. False Negative Masking
         # Neutralize cases where the sampled negative item is actually the target item
         false_negative_mask = pos_ids.unsqueeze(1) == neg_ids
-        neg_scores = neg_scores.masked_fill(false_negative_mask, -1e12)
+        neg_scores = neg_scores.masked_fill(false_negative_mask, -torch.inf)
 
         # 4. Apply LogQ Correction
         # Correction term: score = score - lambda * log(p_j)

@@ -69,7 +69,7 @@ class BasicOptimizer(BaseOptimizer, config_name='basic'):
 
         if self._clip_grad_threshold is not None:
             torch.nn.utils.clip_grad_norm_(
-                self._model.parameters(),
+                [parameter for group in self._optimizer.param_groups for parameter in group['params']],
                 self._clip_grad_threshold,
             )
 

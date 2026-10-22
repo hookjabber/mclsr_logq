@@ -5,11 +5,18 @@ state_dict with numpy / scipy in float64 -- no model code is reused. Compared ag
 the framework: three graphs (eq. 1, §3.2, K=50), eq. 2-7, 9-10, 13 (model forward),
 eq. 16 (eval top-k), eq. 14 in-batch L_P (lambda 0 / 1), eq. 8 / 11 (paper scheme with
 cosine) and the default symmetric form, and the composite objective eq. 15.
+
+Scope: full MCLSR with train-only top-50 graphs, two last-layer propagation steps,
+and the legacy 20-item train-row protocol. Configured alpha, shared/separate interest
+projectors, optional LayerNorm and its epsilon are supported. The retrieval reference
+assumes dot scores, unit temperature, same-user masking and negatives-only logQ;
+this is not a universal verifier for other model, loss or preprocessing variants.
 """
 
 import argparse
 import copy
 import json
+import os
 import pickle
 import sys
 import time
@@ -46,6 +53,10 @@ ap.add_argument('--data', default='data/Clothing')
 args = ap.parse_args()
 cfg = json.load(open(args.config))
 DATA = args.data
+if os.path.exists(os.path.join(DATA, 'preprocessing.json')):
+    ap.error('Unsupported verifier dataset: manifest-backed/v2 data; only legacy 20/20 is supported')
+if cfg['model'].get('num_graph_layers', 0) != 2 or cfg['model'].get('graph_layer_mean', False):
+    ap.error('Unsupported verifier configuration: requires two graph layers and last-layer propagation')
 fix_random_seed(1)
 log('building dataset (user graph may be built from scratch)...')
 dataset = BaseDataset.create_from_config(cfg['dataset'])
@@ -166,7 +177,9 @@ sd = {k: v.detach().cpu().double().numpy() for k, v in model.state_dict().items(
 E_i = sd['_item_embeddings.weight']
 E_u = sd['_user_embeddings.weight']
 P = sd['_position_embeddings.weight']
-ln_w, ln_b = sd['_layernorm.weight'], sd['_layernorm.bias']
+if mcfg.get('use_layernorm', True):
+    ln_w, ln_b = sd['_layernorm.weight'], sd['_layernorm.bias']
+    ln_eps = mcfg.get('layer_norm_eps', 1e-5)
 W1 = sd['_current_interest_learning_encoder.0.weight']
 W2 = sd['_current_interest_learning_encoder.2.weight']
 W3 = sd['_general_interest_learning_encoder.0.weight']
@@ -210,16 +223,18 @@ for b, seq in enumerate(seqs):
     L = len(seq)
     e = E_i[seq]
     x = e + P[np.arange(L - 1, -1, -1)]  # E_{u,p}: last item gets position 0
-    mu = x.mean(1, keepdims=True)
-    var = x.var(1, keepdims=True)
-    x = (x - mu) / np.sqrt(var + 1e-9) * ln_w + ln_b  # LayerNorm (our addition, in every arm)
+    if mcfg.get('use_layernorm', True):
+        mu = x.mean(1, keepdims=True)
+        var = x.var(1, keepdims=True)
+        x = (x - mu) / np.sqrt(var + ln_eps) * ln_w + ln_b
     a_s = softmax((W2 @ np.tanh(W1 @ x.T)).ravel())  # eq. 2
     I_s[b] = a_s @ e  # eq. 3 (raw embeddings)
     Es = H_i[seq]
     h_u = H_u[users[b]]
     a_c = softmax(Es @ np.tanh(W3 @ h_u))  # eq. 5
     I_c[b] = a_c @ Es  # eq. 6
-I_comb = 0.5 * I_s + 0.5 * I_c  # eq. 13
+alpha = mcfg.get('alpha', 0.5)
+I_comb = alpha * I_s + (1 - alpha) * I_c
 
 
 def g(k):
@@ -232,7 +247,8 @@ check(
     np.abs(g('sequential_representation') - proj('_sequential_projector', I_s)).max(),
     1e-5,
 )
-check('eq. 7: projected graph view', np.abs(g('graph_representation') - proj('_graph_projector', I_c)).max(), 1e-5)
+graph_projector = '_sequential_projector' if mcfg.get('share_il_projector', False) else '_graph_projector'
+check('eq. 7: projected graph view', np.abs(g('graph_representation') - proj(graph_projector, I_c)).max(), 1e-5)
 check(
     'label representation = raw item embedding of the target',
     np.abs(g('label_representation') - E_i[labels]).max(),
@@ -378,3 +394,4 @@ print('\n==== SUMMARY ====')
 for name, diff, tol, ok in results:
     print(f'{"OK  " if ok else "FAIL"} {name}  ({diff:.2e})')
 print(f'{sum(ok for *_, ok in results)}/{len(results)} checks passed')
+sys.exit(0 if results and all(ok for *_, ok in results) else 1)

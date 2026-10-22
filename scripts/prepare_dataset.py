@@ -9,10 +9,15 @@ Two inputs:
 * ``--seq``  a text file with one line per user, ``user item item ...``, already 5-core with dense
   ids and in chronological order (how Beauty and CDs & Vinyl were prepared).
 
-Then the shared protocol of the paper and of the study: users are shuffled with ``random.seed(42)``
+The historical ``legacy-v1`` protocol: users are shuffled with ``random.seed(42)``
 and split 80/10/10; a training user keeps the last 20 items and contributes a prefix ladder (one
 line per target position, ``train_mclsr.txt``) and the cropped sequence (``train_sasrec.txt``); a
 validation / test user is split at ``int(0.8 * len)`` into history and targets.
+
+``--protocol windowed-v2`` keeps every MCLSR training target with a bounded preceding history,
+maps users/items to positive dense IDs, and records the mapping and output hashes. Write it into
+a NEW directory; historical data and checkpoints must not be mixed with this protocol. SASRec's
+full user sequences are retained; its loader still trains on each user's final bounded sequence.
 
 ``--verify-against DIR`` compares the produced files with existing ones line by line and, where
 lines differ, says whether the difference is only a reordering within the line (e.g. a timestamp tie).
@@ -24,6 +29,10 @@ lines differ, says whether the difference is only a reordering within the line (
 import argparse
 import os
 import random
+import hashlib
+import json
+from contextlib import ExitStack
+from itertools import zip_longest
 
 MAX_LEN_TRAIN = 20
 SPLIT_SEED = 42
@@ -86,27 +95,82 @@ def split_users(seqs):
     )
 
 
-def write_files(seqs, train_u, valid_u, test_u, out):
-    os.makedirs(out, exist_ok=True)
+def write_files(seqs, train_u, valid_u, test_u, out, protocol='legacy-v1', max_history_length=20):
+    if protocol not in ('legacy-v1', 'windowed-v2'):
+        raise ValueError(f'unknown preprocessing protocol: {protocol}')
+    if not isinstance(max_history_length, int) or max_history_length < 1:
+        raise ValueError('max_history_length must be a positive integer')
+    if protocol == 'legacy-v1' and max_history_length != MAX_LEN_TRAIN:
+        raise ValueError('legacy-v1 uses its fixed historical length of 20')
+    users = [user for user, _ in seqs]
+    if len(users) != len(set(users)) or train_u & valid_u or train_u & test_u or valid_u & test_u:
+        raise ValueError('user split must be disjoint with unique input users')
+    if train_u | valid_u | test_u != set(users):
+        raise ValueError('user split must cover exactly the input users')
+    if not seqs or any(len(items) < 2 or any(item < 0 for item in items) for _, items in seqs):
+        raise ValueError('sequences need at least two nonnegative item IDs')
+    if any(len(items) < 5 for user, items in seqs if user not in train_u):
+        raise ValueError('evaluation users need at least five items')
     names = ('train_mclsr', 'train_sasrec', 'valid_history', 'valid_target', 'test_history', 'test_target')
-    fh = {n: open(os.path.join(out, n + '.txt'), 'w') for n in names}
+    manifest_path = os.path.join(out, 'preprocessing.json')
+    if protocol == 'windowed-v2':
+        if os.path.isdir(out) and os.listdir(out):
+            raise FileExistsError(f'windowed-v2 requires a new or empty output directory: {out}')
+        user_mapping = {user: index + 1 for index, user in enumerate(sorted(users))}
+        item_mapping = {
+            item: index + 1 for index, item in enumerate(sorted({item for _, items in seqs for item in items}))
+        }
+    elif os.path.exists(manifest_path):
+        raise FileExistsError('refusing to overwrite a versioned dataset with legacy-v1')
+    os.makedirs(out, exist_ok=True)
+    incomplete_path = os.path.join(out, '.preprocessing-in-progress')
+    if protocol == 'windowed-v2':
+        with open(incomplete_path, 'x') as marker:
+            marker.write(protocol + '\n')
     ladder = 0
-    for uid, items in seqs:
-        if uid in train_u:
-            crop = items[-MAX_LEN_TRAIN:]
-            fh['train_sasrec'].write(' '.join(map(str, [uid] + crop)) + '\n')
-            for i in range(1, len(crop)):
-                fh['train_mclsr'].write(' '.join(map(str, [uid] + crop[:i] + [crop[i]])) + '\n')
-                ladder += 1
-        else:
-            assert len(items) >= 5
-            si = int(len(items) * 0.8)
-            assert 1 <= si < len(items)
-            kind = 'valid' if uid in valid_u else 'test'
-            fh[kind + '_history'].write(' '.join(map(str, [uid] + items[:si])) + '\n')
-            fh[kind + '_target'].write(' '.join(map(str, [uid] + items[si:])) + '\n')
-    for f in fh.values():
-        f.close()
+    with ExitStack() as stack:
+        files = {name: stack.enter_context(open(os.path.join(out, name + '.txt'), 'w')) for name in names}
+        for original_user, original_items in seqs:
+            uid = user_mapping[original_user] if protocol == 'windowed-v2' else original_user
+            items = [item_mapping[item] for item in original_items] if protocol == 'windowed-v2' else original_items
+            if original_user in train_u:
+                crop = items if protocol == 'windowed-v2' else items[-MAX_LEN_TRAIN:]
+                files['train_sasrec'].write(' '.join(map(str, [uid] + crop)) + '\n')
+                for target_index in range(1, len(crop)):
+                    start = max(0, target_index - max_history_length) if protocol == 'windowed-v2' else 0
+                    row = [uid] + crop[start : target_index + 1]
+                    files['train_mclsr'].write(' '.join(map(str, row)) + '\n')
+                    ladder += 1
+            else:
+                split_index = int(len(items) * 0.8)
+                kind = 'valid' if original_user in valid_u else 'test'
+                files[kind + '_history'].write(' '.join(map(str, [uid] + items[:split_index])) + '\n')
+                files[kind + '_target'].write(' '.join(map(str, [uid] + items[split_index:])) + '\n')
+    if protocol == 'windowed-v2':
+        hashes = {}
+        for name in names:
+            digest = hashlib.sha256()
+            with open(os.path.join(out, name + '.txt'), 'rb') as source:
+                for chunk in iter(lambda: source.read(1 << 20), b''):
+                    digest.update(chunk)
+            hashes[name + '.txt'] = digest.hexdigest()
+        manifest = {
+            'protocol': protocol,
+            'max_history_length': max_history_length,
+            'padding_id': 0,
+            'num_users': len(user_mapping),
+            'num_items': len(item_mapping),
+            'train_targets': ladder,
+            'user_id_mapping': user_mapping,
+            'item_id_mapping': item_mapping,
+            'split_seed': SPLIT_SEED,
+            'files_sha256': hashes,
+            'sasrec_training': 'one final bounded sequence per training user; not all-target MCLSR weighting',
+        }
+        with open(manifest_path, 'x') as destination:
+            json.dump(manifest, destination, indent=2, sort_keys=True)
+            destination.write('\n')
+        os.unlink(incomplete_path)
     return ladder
 
 
@@ -123,7 +187,7 @@ def verify(out, ref):
             print(f'  {n + ".txt":20s} identical ({len(a) - 1} lines)')
             continue
         all_ok = False
-        diff = [(x, y) for x, y in zip(a, b) if x != y]
+        diff = [(x, y) for x, y in zip_longest(a, b, fillvalue='') if x != y]
         reorder = sum(1 for x, y in diff if x.split()[:1] == y.split()[:1] and sorted(x.split()) == sorted(y.split()))
         print(
             f'  {n + ".txt":20s} DIFFERS: {len(diff)} lines differ (line counts {len(a) - 1} vs {len(b) - 1}); '
@@ -139,6 +203,8 @@ def main():
     src.add_argument('--seq')
     ap.add_argument('--out', required=True)
     ap.add_argument('--verify-against')
+    ap.add_argument('--protocol', choices=('legacy-v1', 'windowed-v2'), default='legacy-v1')
+    ap.add_argument('--max-history-length', type=int, default=20)
     args = ap.parse_args()
 
     seqs = sequences_from_csv(args.csv) if args.csv else sequences_from_seq_file(args.seq)
@@ -151,13 +217,15 @@ def main():
     )
     train_u, valid_u, test_u = split_users(seqs)
     print(f'split: train {len(train_u)}, valid {len(valid_u)}, test {len(test_u)}')
-    ladder = write_files(seqs, train_u, valid_u, test_u, args.out)
+    ladder = write_files(seqs, train_u, valid_u, test_u, args.out, args.protocol, args.max_history_length)
     print(f'ladder rows: {ladder}; files written to {args.out}')
     if args.verify_against:
         print(f'verification against {args.verify_against}:')
         ok = verify(args.out, args.verify_against)
         print('ALL FILES IDENTICAL' if ok else 'DIFFERENCES FOUND')
+        return 0 if ok else 1
+    return 0
 
 
 if __name__ == '__main__':
-    main()
+    raise SystemExit(main())

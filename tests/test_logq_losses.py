@@ -9,6 +9,7 @@ or via pytest.
 """
 
 import math
+from itertools import product
 import os
 import pickle
 import sys
@@ -739,47 +740,96 @@ def test_contrastive_full_softmax_matches_manual():
     assert torch.all(table.grad[0] == 0) and torch.all(table.grad[-1] == 0)
 
 
+def reference_fps_logq_paper(fst, snd, ids, counts, tau, logq_lambda, probability_mode, normalize, mask_duplicates):
+    if normalize:
+        fst = torch.nn.functional.normalize(fst, dim=-1, eps=1e-6)
+        snd = torch.nn.functional.normalize(snd, dim=-1, eps=1e-6)
+    probabilities = np.asarray(counts, dtype=np.float64)
+    probabilities = probabilities / probabilities.sum()
+    batch_size = len(ids)
+    rows = []
+    for anchor_index in range(batch_size):
+        logits = []
+        for candidates, same_view in ((snd, False), (fst, True)):
+            for candidate_index in range(batch_size):
+                paired_positive = not same_view and anchor_index == candidate_index
+                own_copy = same_view and anchor_index == candidate_index
+                same_id = ids[anchor_index] == ids[candidate_index]
+                if own_copy or (mask_duplicates and same_id and not paired_positive):
+                    logits.append(fst.new_tensor(-1e12))
+                    continue
+                score = torch.dot(fst[anchor_index], candidates[candidate_index]) / tau
+                if not paired_positive:
+                    probability = probabilities[int(ids[candidate_index])]
+                    if probability_mode == 'inbatch_negative':
+                        probability = 1.0 - (1.0 - probability) ** (batch_size - 1)
+                    score = score - logq_lambda * math.log(max(probability, 1e-10))
+                logits.append(score)
+        rows.append(torch.stack(logits))
+    scores = torch.stack(rows)
+    return (torch.logsumexp(scores, dim=1) - scores.diagonal()).mean()
+
+
+def test_fps_logq_paper_scheme_matches_manual_and_fps():
+    """Compare values and both view gradients with a catalogue-indexed scalar oracle.
+
+    Duplicate, noncontiguous IDs exceed the batch size, and every catalogue count differs.
+    Lambda zero equals plain FPS only when false-negative masking is disabled in both.
+    """
+    torch.manual_seed(21)
+    counts = np.arange(1, 19, dtype=np.float32) ** 2
+    ids = torch.tensor([16, 16, 2, 9, 4, 7, 9, 1])
+    fst = torch.randn(len(ids), D, dtype=torch.float64, requires_grad=True)
+    snd = torch.randn(len(ids), D, dtype=torch.float64, requires_grad=True)
+    reference_fst = fst.detach().clone().requires_grad_()
+    reference_snd = snd.detach().clone().requires_grad_()
+    with tempfile.NamedTemporaryFile(suffix='.pkl') as count_file:
+        pickle.dump(counts, count_file)
+        count_file.flush()
+        for probability_mode, normalize, mask_duplicates, logq_lambda in product(
+            ('sample', 'inbatch_negative'), (False, True), (False, True), (0.0, 0.6, 1.0)
+        ):
+            loss = FpsLogQLoss(
+                'f',
+                's',
+                ids_prefix='pid',
+                path_to_counts=count_file.name,
+                tau=0.5,
+                scheme='paper',
+                logq_lambda=logq_lambda,
+                logq_probability_mode=probability_mode,
+                normalize_embeddings=normalize,
+                mask_false_negatives=mask_duplicates,
+            ).double()
+            got = loss({'f': fst, 's': snd, 'pid': ids})
+            want = reference_fps_logq_paper(
+                reference_fst,
+                reference_snd,
+                ids,
+                counts,
+                0.5,
+                logq_lambda,
+                probability_mode,
+                normalize,
+                mask_duplicates,
+            )
+            torch.testing.assert_close(got, want, atol=1e-7, rtol=1e-6)
+            got_gradients = torch.autograd.grad(got, (fst, snd))
+            want_gradients = torch.autograd.grad(want, (reference_fst, reference_snd))
+            for got_gradient, want_gradient in zip(got_gradients, want_gradients):
+                assert torch.isfinite(got_gradient).all()
+                torch.testing.assert_close(got_gradient, want_gradient, atol=1e-7, rtol=1e-6)
+            if logq_lambda == 0.0 and not mask_duplicates:
+                plain = FpsLoss('f', 's', tau=0.5, scheme='paper', normalize_embeddings=normalize)({'f': fst, 's': snd})
+                torch.testing.assert_close(got, plain, atol=1e-10, rtol=1e-10)
+                plain_gradients = torch.autograd.grad(plain, (fst, snd))
+                for got_gradient, plain_gradient in zip(got_gradients, plain_gradients):
+                    torch.testing.assert_close(got_gradient, plain_gradient, atol=1e-10, rtol=1e-10)
+
+
 if __name__ == '__main__':
     for name, fn in sorted(globals().items()):
         if name.startswith('test_'):
             fn()
             print(f'{name}: OK')
     print('\nALL TESTS PASSED')
-
-
-def test_fps_logq_paper_scheme_matches_manual_and_fps():
-    """scheme='paper' in FpsLogQLoss: lambda = 0 equals FpsLoss(scheme='paper'); lambda = 1 corrects every
-    candidate (both views) by its in-batch sample log q, keeps the paired positive uncorrected, masks the
-    anchor's own copy and same-id false negatives, and averages over the B anchors without the /2."""
-    torch.manual_seed(21)
-    path = _counts_path()
-    f = torch.randn(B, D, requires_grad=True)
-    s = torch.randn(B, D)
-    kwargs = dict(
-        fst_embeddings_prefix='f',
-        snd_embeddings_prefix='s',
-        ids_prefix='pid',
-        path_to_counts=path,
-        tau=0.5,
-        scheme='paper',
-    )
-    zero = FpsLogQLoss(logq_lambda=0.0, mask_false_negatives=False, **kwargs)({'f': f, 's': s, 'pid': POS_IDS})
-    plain = FpsLoss('f', 's', tau=0.5, scheme='paper')({'f': f.detach(), 's': s})
-    assert torch.allclose(zero, plain, atol=1e-5), (zero.item(), plain.item())
-    got = FpsLogQLoss(logq_lambda=1.0, **kwargs)({'f': f, 's': s, 'pid': POS_IDS})
-    prob = _probs()
-    q_in = 1 - (1 - prob[POS_IDS]) ** (B - 1)  # inbatch_negative mode: seen at least once among B-1 draws
-    cand = torch.cat((s, f.detach()), 0).double()
-    scores = f.detach().double() @ cand.T / 0.5
-    cand_ids = torch.cat((POS_IDS, POS_IDS))
-    scores = scores - torch.log(q_in.double())[cand_ids][None, :]
-    for i in range(B):
-        scores[i, i] += torch.log(q_in.double())[POS_IDS[i]]  # the paired positive (snd_i) is observed, not sampled
-        scores[i, B + i] = -1e12  # own fst copy
-        for j in range(2 * B):
-            if j != i and j != B + i and cand_ids[j] == POS_IDS[i]:
-                scores[i, j] = -1e12
-    want = torch.nn.functional.cross_entropy(scores.float(), torch.arange(B))
-    assert torch.allclose(got, want, atol=1e-4), (got.item(), want.item())
-    got.backward()
-    assert torch.isfinite(f.grad).all()

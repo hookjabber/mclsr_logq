@@ -55,12 +55,19 @@ class MCLSRTrainSampler(TrainSampler, config_name='mclsr'):
             )
         else:
             # Fallback: uniform rejection sampling
-            user_seen = self._user_to_all_seen_items[user_id]
+            user_seen = set(self._user_to_all_seen_items.get(user_id, ())).union(sample['item.ids'])
+            available = self._num_items - len(self._all_items_set.intersection(user_seen))
+            BaseNegativeSampler.validate_request(self._num_negatives, available)
             negatives = set()
-            while len(negatives) < self._num_negatives:
+            attempts = 0
+            while len(negatives) < self._num_negatives and attempts < max(32, 4 * self._num_negatives):
                 candidate = random.randint(1, self._num_items)
+                attempts += 1
                 if candidate not in user_seen:
                     negatives.add(candidate)
+            if len(negatives) < self._num_negatives:
+                remaining = sorted(self._all_items_set - user_seen - negatives)
+                negatives.update(random.sample(remaining, self._num_negatives - len(negatives)))
             negatives = list(negatives)
 
         return {

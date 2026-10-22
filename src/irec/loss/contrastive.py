@@ -101,7 +101,7 @@ class FpsLoss(TorchLoss, config_name='fps'):
                 scores = self._pairwise_scores(fst_embeddings, candidates)
                 n = fst_embeddings.shape[0]
                 idx = torch.arange(n, device=scores.device)
-                scores[idx, n + idx] = -1e12  # own fst copy is not a negative
+                scores[idx, n + idx] = -torch.inf  # own fst copy is not a negative
             labels = torch.arange(scores.shape[0], device=scores.device)
             loss = self._loss_function(scores, labels)
             if self._output_prefix is not None:
@@ -178,12 +178,13 @@ class FpsLogQLoss(TorchLoss, config_name='fps_logq'):
     candidates are other samples/users in the same batch rather than explicit
     item negatives. The configured ids_prefix defines which sample id supplies
     q(id) for the correction table. By default q(id) is converted to the
-    probability that this id appears at least once among B-1 in-batch negatives.
+    iid-model probability that this id appears at least once among B-1 draws,
+    not an exact inclusion probability for the actual batch sampler.
 
-    With `leave_own_out=True` the correction uses the leave-anchor-out
-    distribution q'_anchor(v) = count(v) / (S - count(anchor)): false-negative
-    masking removes the anchor's own id from the candidate pool, so negatives
-    are effectively drawn from q', not from the marginal q.
+    With `leave_own_out=True` the correction uses the renormalized proposal
+    model q'_anchor(v) = q(v) / (1 - q(anchor)). False-negative masking does not
+    resample excluded candidates, so it does not make this model the exact
+    conditional proposal of the retained negatives.
     """
 
     def __init__(
@@ -336,16 +337,19 @@ class FpsLogQLoss(TorchLoss, config_name='fps_logq'):
             return -(distances**2) / self._tau
         return torch.mm(queries, candidates.T) / self._tau
 
-    def _sample_log_q(self, ids, num_negative_draws):
-        if self._logq_probability_mode == 'sample':
-            return self._log_q_table[ids]  # (B,)
-        sample_probs = self._prob_table[ids]
+    @staticmethod
+    def _inclusion_log_q(sample_probs, num_negative_draws):
         if num_negative_draws <= 0:
             sample_q = torch.full_like(sample_probs, 1e-10)
         else:
-            sample_q = 1.0 - torch.pow(1.0 - sample_probs, num_negative_draws)
+            sample_q = -torch.expm1(num_negative_draws * torch.log1p(-sample_probs))
             sample_q = torch.clamp(sample_q, min=1e-10)
-        return torch.log(sample_q)  # (B,)
+        return torch.log(sample_q)
+
+    def _sample_log_q(self, ids, num_negative_draws):
+        if self._logq_probability_mode == 'sample':
+            return self._log_q_table[ids]  # (B,)
+        return self._inclusion_log_q(self._prob_table[ids], num_negative_draws)
 
     def _candidate_log_q(self, ids, num_negative_draws):
         sample_log_q = self._sample_log_q(ids, num_negative_draws)
@@ -362,19 +366,10 @@ class FpsLogQLoss(TorchLoss, config_name='fps_logq'):
         probs = torch.clamp(probs, min=1e-10, max=1.0)
         if self._logq_probability_mode == 'sample':
             return torch.log(probs)
-        if num_negative_draws <= 0:
-            sample_q = torch.full_like(probs, 1e-10)
-        else:
-            sample_q = 1.0 - torch.pow(
-                torch.clamp(1.0 - probs, min=0.0),
-                num_negative_draws,
-            )
-            sample_q = torch.clamp(sample_q, min=1e-10)
-        return torch.log(sample_q)
+        return self._inclusion_log_q(probs, num_negative_draws)
 
     def _candidate_log_q_leave_own_out(self, ids, num_negative_draws):
         # q'_anchor(v) = count(v) / (S - count(anchor)) = p(v) / (1 - p(anchor)):
-        # the anchor's own id is masked out of the pool, every draw comes from q'.
         sample_probs = self._prob_table[ids]  # (B,)
         candidate_probs = torch.cat((sample_probs, sample_probs))  # (2 * B,)
         anchor_keep = torch.clamp(1.0 - candidate_probs, min=1e-10)  # (2 * B,)
@@ -384,15 +379,7 @@ class FpsLogQLoss(TorchLoss, config_name='fps_logq'):
         if self._logq_probability_mode == 'sample':
             return torch.log(probs)
 
-        if num_negative_draws <= 0:
-            sample_q = torch.full_like(probs, 1e-10)
-        else:
-            sample_q = 1.0 - torch.pow(
-                torch.clamp(1.0 - probs, min=0.0),
-                num_negative_draws,
-            )
-            sample_q = torch.clamp(sample_q, min=1e-10)
-        return torch.log(sample_q)
+        return self._inclusion_log_q(probs, num_negative_draws)
 
     def forward(self, inputs):
         fst_embeddings = inputs[self._fst_embeddings_prefix]  # (B, D)
@@ -457,7 +444,7 @@ class FpsLogQLoss(TorchLoss, config_name='fps_logq'):
             if self._mask_false_negatives:
                 false_negative_mask = ids.unsqueeze(0) == ids.unsqueeze(1)
                 false_negative_mask.fill_diagonal_(False)
-                all_scores = all_scores.masked_fill(false_negative_mask, -1e12)
+                all_scores = all_scores.masked_fill(false_negative_mask, -torch.inf)
 
             labels = torch.arange(batch_size, device=device)
             loss = self._loss_function(all_scores, labels)
@@ -532,7 +519,7 @@ class FpsLogQLoss(TorchLoss, config_name='fps_logq'):
             false_negative_mask.fill_diagonal_(False)
             invalid_mask |= false_negative_mask
 
-        all_scores = all_scores.masked_fill(invalid_mask, -1e12)
+        all_scores = all_scores.masked_fill(invalid_mask, -torch.inf)
 
         if self._scheme == 'paper':
             # paper eq. 8 / 11: anchors = fst view only; candidates = every snd row plus the other fst
@@ -629,10 +616,10 @@ class MatchedContrastiveFullSoftmaxLoss(
         n = other_table.shape[0]
         scores = scores.masked_fill(
             torch.cat((invalid, invalid), dim=0).unsqueeze(0),
-            -1e12,
+            -torch.inf,
         )
         rows = torch.arange(anchors.shape[0], device=scores.device)
-        scores[rows, n + ids] = -1e12  # the anchor's own same-view row
+        scores[rows, n + ids] = -torch.inf  # the anchor's own same-view row
         return scores  # positive = column `ids` (other-view block)
 
     def forward(self, inputs):
@@ -725,6 +712,9 @@ class ContrastiveFullSoftmaxLoss(TorchLoss, config_name='contrastive_full_softma
         table = inputs[self._table_prefix]  # (N, D)
         ids = inputs[self._ids_prefix].reshape(-1)  # (B,)
 
+        if bool(((ids <= 0) | (ids >= table.shape[0] - 1)).any()):
+            raise ValueError('contrastive full-softmax: positive ids must refer to non-padding, non-mask table rows')
+
         if self._normalize_embeddings:
             anchors = torch.nn.functional.normalize(
                 anchors,
@@ -740,8 +730,8 @@ class ContrastiveFullSoftmaxLoss(TorchLoss, config_name='contrastive_full_softma
             )
 
         all_scores = torch.mm(anchors, table.T) / self._tau  # (B, N)
-        all_scores[:, 0] = -1e12  # padding column
-        all_scores[:, -1] = -1e12  # mask-token column
+        all_scores[:, 0] = -torch.inf  # padding column
+        all_scores[:, -1] = -torch.inf  # mask-token column
 
         loss = self._loss_function(all_scores, ids)
 

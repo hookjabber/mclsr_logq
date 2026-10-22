@@ -6,6 +6,9 @@ import random
 import subprocess
 import sys
 
+import json
+import pytest
+
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, os.path.join(ROOT, 'scripts'))
 import prepare_dataset  # noqa: E402
@@ -80,4 +83,40 @@ def test_split_ladder_and_eval_cut(tmp_path):
     with open(os.path.join(out, 'test_target.txt'), 'a') as f:
         f.write('999 1 2 3\n')
     res = subprocess.run(cli, capture_output=True, text=True, timeout=120)
+    assert res.returncode != 0
     assert 'DIFFERENCES FOUND' in res.stdout and 'test_target.txt' in res.stdout
+
+
+def test_windowed_protocol_keeps_every_target_and_reserves_padding(tmp_path):
+    seqs = [(0, list(range(25))), (8, [24, 0, 3, 7, 24]), (30, [0, 7, 9, 12, 24])]
+    out = tmp_path / 'v2'
+    rows = prepare_dataset.write_files(seqs, {0}, {8}, {30}, out, protocol='windowed-v2', max_history_length=20)
+    ladder = [[int(value) for value in line.split()] for line in (out / 'train_mclsr.txt').read_text().splitlines()]
+    assert rows == 24
+    assert [row[-1] for row in ladder] == list(range(2, 26))
+    assert max(len(row) - 2 for row in ladder) == 20
+    assert ladder[-1] == [1] + list(range(5, 26))
+    assert all(value > 0 for row in ladder for value in row)
+    assert (out / 'valid_history.txt').read_text() == '2 25 1 4 8\n'
+    assert (out / 'test_target.txt').read_text() == '3 25\n'
+    manifest = json.loads((out / 'preprocessing.json').read_text())
+    assert manifest['protocol'] == 'windowed-v2'
+    assert manifest['max_history_length'] == 20
+    assert manifest['item_id_mapping']['0'] == 1
+    assert manifest['num_items'] == 25
+
+
+def test_windowed_protocol_refuses_overwriting_existing_data(tmp_path):
+    out = tmp_path / 'v2'
+    out.mkdir()
+    original = out / 'train_mclsr.txt'
+    original.write_text('historical data\n')
+    with pytest.raises(FileExistsError):
+        prepare_dataset.write_files([(1, [0, 1, 2, 3, 4])], {1}, set(), set(), out, protocol='windowed-v2')
+    assert original.read_text() == 'historical data\n'
+
+
+def test_windowed_protocol_rejects_invalid_split_before_writing(tmp_path):
+    with pytest.raises(ValueError, match='split'):
+        prepare_dataset.write_files([(1, [1, 2, 3, 4, 5])], {1}, {1}, set(), tmp_path / 'bad', protocol='windowed-v2')
+    assert not (tmp_path / 'bad').exists()

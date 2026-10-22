@@ -125,14 +125,18 @@ class SASRecModel(SequentialTorchModel, config_name='sasrec'):
                     size=(int(bad.sum()),),
                     device=device,
                 )
+            bad = (negative_ids[:, None] == forbidden).any(dim=1)
             if bad.any():
-                raise RuntimeError(
-                    'negative rejection sampling could not find eligible items '
-                    'for {} queries — the catalog is too dense relative to '
-                    'user sequences; use exact eligible-set sampling'.format(
-                        int(bad.sum()),
-                    )
-                )
+                unresolved = bad.nonzero(as_tuple=True)[0]
+                forbidden_groups, group_indices = torch.unique(forbidden[bad], dim=0, return_inverse=True)
+                catalogue = torch.arange(1, self._num_items + 1, device=device)
+                for group_index, excluded_ids in enumerate(forbidden_groups):
+                    eligible = catalogue[~torch.isin(catalogue, excluded_ids)]
+                    if eligible.numel() == 0:
+                        raise RuntimeError('negative sampling has no eligible items for a saturated user')
+                    query_indices = unresolved[group_indices == group_index]
+                    selected = torch.randint(0, eligible.numel(), size=(query_indices.numel(),), device=device)
+                    negative_ids[query_indices] = eligible[selected]
             negative_scores = torch.gather(input=all_scores, dim=1, index=negative_ids[..., None])[
                 :, 0
             ]  # (all_batch_items)
@@ -148,21 +152,7 @@ class SASRecModel(SequentialTorchModel, config_name='sasrec'):
             candidate_scores = torch.einsum(
                 'bd,nd->bn', last_embeddings, self._item_embeddings.weight
             )  # (batch_size, num_items + 2)
-            candidate_scores[:, 0] = -torch.inf
-            candidate_scores[:, self._num_items + 1 :] = -torch.inf
-            if self._eval_top_k > self._num_items:
-                raise ValueError(
-                    'eval_top_k={} is larger than num_items={}'.format(
-                        self._eval_top_k,
-                        self._num_items,
-                    ),
-                )
-
-            _, indices = torch.topk(
-                candidate_scores, k=self._eval_top_k, dim=-1, largest=True
-            )  # (batch_size, eval_top_k)
-
-            return indices
+            return self._rank_catalogue(candidate_scores)
 
 
 class SASRecInBatchModel(SASRecModel, config_name='sasrec_in_batch'):
@@ -280,18 +270,4 @@ class SASRecInBatchModel(SASRecModel, config_name='sasrec_in_batch'):
             candidate_scores = torch.einsum(
                 'bd,nd->bn', last_embeddings, self._item_embeddings.weight
             )  # (batch_size, num_items + 2)
-            candidate_scores[:, 0] = -torch.inf
-            candidate_scores[:, self._num_items + 1 :] = -torch.inf
-            if self._eval_top_k > self._num_items:
-                raise ValueError(
-                    'eval_top_k={} is larger than num_items={}'.format(
-                        self._eval_top_k,
-                        self._num_items,
-                    ),
-                )
-
-            _, indices = torch.topk(
-                candidate_scores, k=self._eval_top_k, dim=-1, largest=True
-            )  # (batch_size, eval_top_k)
-
-            return indices
+            return self._rank_catalogue(candidate_scores)

@@ -3,11 +3,16 @@
 import os
 import pickle
 
+import numpy as np
+
 
 def load_counts_artifact(path, expected_role=None, expected_max_len=None):
     """Load a counts table: either a bare array (legacy) or a metadata dict
     {'counts', 'denominator', 'role', 'max_len', 'source', 'source_sha256'}.
-    Returns (counts_array, metadata_dict); metadata is {} for bare arrays.
+    Returns (counts, metadata_dict), preserving the stored counts type and dtype;
+    metadata is {} for bare arrays. Counts must be a nonempty real numeric vector
+    with finite nonnegative values and a positive finite total. An optional
+    denominator must be a positive finite scalar no smaller than any count.
 
     When the config states expectations, they are ENFORCED: a table with the
     wrong role/max_len (e.g. target counts wired where context-inclusion Q
@@ -38,4 +43,30 @@ def load_counts_artifact(path, expected_role=None, expected_max_len=None):
                 metadata.get('max_len'),
             )
         )
+    try:
+        count_array = np.asarray(counts)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f'Invalid counts at {path}: expected a nonempty real numeric vector') from error
+    if count_array.ndim != 1 or count_array.size == 0 or count_array.dtype.kind not in 'iuf':
+        raise ValueError(f'Invalid counts at {path}: expected a nonempty real numeric vector')
+    if not np.isfinite(count_array).all() or (count_array < 0).any():
+        raise ValueError(f'Invalid counts at {path}: values must be finite and nonnegative')
+    with np.errstate(over='ignore', invalid='ignore'):
+        total = count_array.sum(dtype=np.float64)
+    if not np.isfinite(total) or total <= 0:
+        raise ValueError(f'Invalid counts at {path}: total must be positive and finite')
+    if 'denominator' in metadata:
+        try:
+            denominator = np.asarray(metadata['denominator'])
+        except (TypeError, ValueError) as error:
+            raise ValueError(f'Invalid counts denominator at {path}: expected a positive finite real scalar') from error
+        if (
+            denominator.ndim != 0
+            or denominator.dtype.kind not in 'iuf'
+            or not np.isfinite(denominator)
+            or denominator <= 0
+        ):
+            raise ValueError(f'Invalid counts denominator at {path}: expected a positive finite real scalar')
+        if (count_array > denominator).any():
+            raise ValueError(f'Invalid counts denominator at {path}: must be at least every count')
     return counts, metadata

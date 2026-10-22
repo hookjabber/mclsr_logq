@@ -3,13 +3,176 @@ construction and LightGCN propagation are compared with hand-computed dense resu
 
 import os
 import sys
+from types import SimpleNamespace
 
 import numpy as np
+import pytest
 import scipy.sparse as sp
 import torch
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'src'))
 from irec.dataset.graph import GraphDataset  # noqa: E402
+import irec.dataset.graph as graph_module
+
+
+_GRAPH_CACHE_FILES = [
+    ('graph', 'general_graph_trainOnly.npz'),
+    ('user_graph', 'user_graph_full_trainOnly.npz'),
+    ('item_graph', 'item_graph_full_trainOnly.npz'),
+]
+
+
+@pytest.fixture(autouse=True)
+def _cpu_graphs(monkeypatch):
+    monkeypatch.setattr(graph_module, 'DEVICE', torch.device('cpu'))
+
+
+def _cached_dataset(cache_dir, train=None, validation=None, test=None, num_users=3, num_items=4, **options):
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    if train is None:
+        train = [(1, [1, 2]), (2, [2, 3]), (3, [3, 4])]
+    samplers = tuple(
+        SimpleNamespace(dataset=[{'user.ids': [user_id], 'item.ids': item_ids} for user_id, item_ids in split])
+        for split in (train, validation or [], test or [])
+    )
+    dataset = SimpleNamespace(num_users=num_users, num_items=num_items, meta={}, get_samplers=lambda: samplers)
+    return GraphDataset(dataset, cache_dir, use_user_graph=True, use_item_graph=True, **options)
+
+
+@pytest.mark.parametrize('graph_name', ['graph', 'user_graph', 'item_graph'])
+def test_graph_cache_invalidates_same_shape_changed_interactions(tmp_path, graph_name):
+    original = _cached_dataset(tmp_path / 'shared').meta[graph_name].to_dense()
+    changed = [(1, [1, 3]), (2, [2, 3]), (3, [3, 4])]
+    reloaded = _cached_dataset(tmp_path / 'shared', train=changed).meta[graph_name].to_dense()
+    expected = _cached_dataset(tmp_path / 'fresh', train=changed).meta[graph_name].to_dense()
+
+    assert original.shape == expected.shape
+    assert not torch.allclose(original, expected)
+    torch.testing.assert_close(reloaded, expected)
+
+
+@pytest.mark.parametrize('num_users,num_items', [(4, 4), (3, 5), (4, 3)])
+def test_graph_cache_invalidates_catalogue_dimensions(tmp_path, num_users, num_items):
+    train = [(1, [1, 2]), (2, [2, 3])]
+    _cached_dataset(tmp_path / 'shared', train=train)
+    reloaded = _cached_dataset(tmp_path / 'shared', train=train, num_users=num_users, num_items=num_items)
+    expected = _cached_dataset(tmp_path / 'fresh', train=train, num_users=num_users, num_items=num_items)
+
+    for graph_name, _ in _GRAPH_CACHE_FILES:
+        torch.testing.assert_close(reloaded.meta[graph_name].to_dense(), expected.meta[graph_name].to_dense())
+
+
+def test_graph_cache_reuses_equivalent_interactions(tmp_path, monkeypatch):
+    expected = _cached_dataset(tmp_path)
+
+    def unexpected_rebuild(*args, **kwargs):
+        pytest.fail('Equivalent interaction sets should reuse the cache')
+
+    monkeypatch.setattr(GraphDataset, 'get_sparse_graph_layer', unexpected_rebuild)
+    reordered = [(3, [4, 3]), (1, [2, 1, 2]), (2, [3, 2]), (1, [1])]
+    reloaded = _cached_dataset(tmp_path, train=reordered, validation=[(2, [1, 4])], test=[(3, [1])])
+
+    for graph_name, _ in _GRAPH_CACHE_FILES:
+        torch.testing.assert_close(reloaded.meta[graph_name].to_dense(), expected.meta[graph_name].to_dense())
+
+
+@pytest.mark.parametrize('split', ['validation', 'test'])
+def test_graph_cache_hashes_selected_evaluation_interactions(tmp_path, split):
+    _cached_dataset(tmp_path / 'shared', use_train_data_only=False)
+    options = {'use_train_data_only': False, split: [(1, [3]), (2, [4])]}
+    reloaded = _cached_dataset(tmp_path / 'shared', **options)
+    expected = _cached_dataset(tmp_path / 'fresh', **options)
+
+    for graph_name, _ in _GRAPH_CACHE_FILES:
+        torch.testing.assert_close(reloaded.meta[graph_name].to_dense(), expected.meta[graph_name].to_dense())
+
+
+def test_graph_cache_invalidates_builder_version(tmp_path, monkeypatch):
+    _cached_dataset(tmp_path)
+    original_builder = GraphDataset.get_sparse_graph_layer
+    rebuilt = []
+
+    def track_rebuild(*args, **kwargs):
+        rebuilt.append(True)
+        return original_builder(*args, **kwargs)
+
+    monkeypatch.setattr(GraphDataset, 'get_sparse_graph_layer', staticmethod(track_rebuild))
+    monkeypatch.setattr(graph_module, '_GRAPH_BUILDER_VERSION', 'next-version', raising=False)
+    _cached_dataset(tmp_path)
+
+    assert len(rebuilt) == 3
+
+
+@pytest.mark.parametrize('graph_name,filename', _GRAPH_CACHE_FILES)
+@pytest.mark.parametrize('damage', ['legacy', 'truncated', 'manifest', 'shape', 'nonfinite', 'indices'])
+def test_graph_cache_rebuilds_untrusted_artifacts(tmp_path, graph_name, filename, damage):
+    expected = _cached_dataset(tmp_path).meta[graph_name].to_dense()
+    cache_path = tmp_path / filename
+    with np.load(cache_path, allow_pickle=False) as cached:
+        payload = {key: cached[key] for key in cached.files}
+
+    if damage == 'legacy':
+        sp.save_npz(cache_path, sp.eye(expected.shape[0], format='csr'))
+    elif damage == 'truncated':
+        cache_path.write_bytes(cache_path.read_bytes()[:20])
+    else:
+        if damage == 'manifest':
+            payload['cache_manifest'] = np.array('{}')
+            payload['data'] = np.zeros_like(payload['data'])
+        elif damage == 'shape':
+            payload['shape'] = payload['shape'] + [0, 1]
+        elif damage == 'nonfinite':
+            payload['data'][:] = np.nan
+        elif damage == 'indices':
+            payload['indices'][0] = expected.shape[0]
+        np.savez_compressed(cache_path, **payload)
+
+    reloaded = _cached_dataset(tmp_path).meta[graph_name].to_dense()
+    torch.testing.assert_close(reloaded, expected)
+    assert sp.load_npz(cache_path).shape == tuple(expected.shape)
+
+
+@pytest.mark.parametrize('option', ['neighborhood_size', 'use_train_data_only'])
+def test_graph_cache_validates_options_in_manifest(tmp_path, option):
+    options = {'neighborhood_size': 1} if option == 'neighborhood_size' else {'use_train_data_only': False}
+    expected = _cached_dataset(tmp_path / 'expected', **options)
+    _cached_dataset(tmp_path / 'shared')
+    if option == 'neighborhood_size':
+        for entity_type in ('user', 'item'):
+            source = tmp_path / 'shared' / f'{entity_type}_graph_full_trainOnly.npz'
+            source.rename(source.with_name(f'{entity_type}_graph_k1_trainOnly.npz'))
+    else:
+        for source in (tmp_path / 'shared').glob('*.npz'):
+            source.rename(source.with_name(source.name.replace('trainOnly', 'withValTest')))
+
+    reloaded = _cached_dataset(tmp_path / 'shared', **options)
+    for graph_name, _ in _GRAPH_CACHE_FILES:
+        torch.testing.assert_close(reloaded.meta[graph_name].to_dense(), expected.meta[graph_name].to_dense())
+
+    for cache_path in (tmp_path / 'expected').glob('*.npz'):
+        with np.load(cache_path, allow_pickle=False) as fresh:
+            with np.load(tmp_path / 'shared' / cache_path.name, allow_pickle=False) as cached:
+                assert cached['cache_manifest'].item() == fresh['cache_manifest'].item()
+
+
+def test_graph_cache_interrupted_write_preserves_previous_cache(tmp_path, monkeypatch):
+    _cached_dataset(tmp_path)
+    before = {cache_path.name: cache_path.read_bytes() for cache_path in tmp_path.iterdir()}
+    observed = []
+
+    def interrupt_replace(source, destination):
+        assert os.path.dirname(source) == str(tmp_path)
+        assert os.path.dirname(destination) == str(tmp_path)
+        observed.append(sp.load_npz(source).shape)
+        raise OSError('simulated interruption before atomic replace')
+
+    with monkeypatch.context() as patch:
+        patch.setattr(graph_module.os, 'replace', interrupt_replace)
+        with pytest.raises(OSError, match='simulated interruption'):
+            _cached_dataset(tmp_path, train=[(1, [1, 3]), (2, [2, 3]), (3, [3, 4])])
+
+    assert len(observed) == 1
+    assert {cache_path.name: cache_path.read_bytes() for cache_path in tmp_path.iterdir()} == before
 
 
 def _dense_sym_norm(adj):
@@ -76,8 +239,4 @@ def test_lightgcn_propagation_matches_dense_power():
 
 
 if __name__ == '__main__':
-    for name, fn in sorted(globals().items()):
-        if name.startswith('test_'):
-            fn()
-            print(f'{name}: OK')
-    print('\nALL GRAPH TESTS PASSED')
+    raise SystemExit(pytest.main([__file__]))
