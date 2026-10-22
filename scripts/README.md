@@ -43,7 +43,7 @@ file). Run them from the repository root with the framework on the path: `PYTHON
 | `indep_check_architecture.py` | the MCLSR forward pass, every loss and the eval top-k in numpy / float64 on a real batch |
 | `indep_check_sasrec.py` | the SASRec branch: numpy transformer, identical eval inputs, causality, padding, loss |
 | `indep_check_beauty.py`, `indep_check_clothing.py` | the headline effect reproduced by a standalone retrieval model without the framework |
-| `diagnose_feature_graphs.py` | why the user–user / item–item graphs contribute nothing (edge overlap, view similarity) |
+| `diagnose_feature_graphs.py` | graph-neighborhood overlap, checkpoint-view similarity and logged loss trajectories; not a test of recommendation benefit |
 
 ## Reporting
 

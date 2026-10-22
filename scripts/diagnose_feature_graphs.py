@@ -1,8 +1,8 @@
-"""Why the feature-level graphs contribute nothing: (1) the user–user / item–item graphs are the
-top-k truncation of the 2-hop projection of the user–item graph that the LightGCN branch already
-propagates over; (2) at a trained checkpoint the two "views" contrasted by L_UC / L_IC are nearly
-identical, while the L_IL pair (sequence vs graph) is not; (3) the feature-level losses barely move
-during training.  CPU only.
+"""Measure graph-neighbor overlap, checkpoint-view similarity and training-loss curves.
+
+The overlap uses the two-hop projection of the normalized user-item graph.
+Similarity alone does not establish whether a graph branch improves recommendation.
+Run with CUDA_VISIBLE_DEVICES empty for CPU-only diagnostics.
 
     CUDA_VISIBLE_DEVICES= python scripts/diagnose_feature_graphs.py \
         --params configs/train/beauty/05_full_baseline.json \
@@ -26,10 +26,19 @@ from irec.models import BaseModel  # noqa: E402
 from irec.utils import DEVICE, fix_random_seed  # noqa: E402
 
 
-def graph_overlap(data_dir, k=50):
-    general = sp.load_npz(os.path.join(data_dir, 'general_graph_trainOnly.npz')).tocsr()
-    uu = sp.load_npz(os.path.join(data_dir, f'user_graph_k{k}_trainOnly.npz')).tocsr()
-    ii = sp.load_npz(os.path.join(data_dir, f'item_graph_k{k}_trainOnly.npz')).tocsr()
+def graph_overlap(data_dir, k=50, interaction_weighting='binary', use_train_data_only=True):
+    if interaction_weighting not in ('binary', 'event_count'):
+        raise ValueError('interaction_weighting must be binary or event_count')
+    weight_suffix = '' if interaction_weighting == 'binary' else '_event_count'
+    train_suffix = 'trainOnly' if use_train_data_only else 'withValTest'
+    neighborhood_suffix = f'k{k}' if k is not None else 'full'
+    general = sp.load_npz(os.path.join(data_dir, f'general_graph{weight_suffix}_{train_suffix}.npz')).tocsr()
+    uu = sp.load_npz(
+        os.path.join(data_dir, f'user_graph_{neighborhood_suffix}{weight_suffix}_{train_suffix}.npz')
+    ).tocsr()
+    ii = sp.load_npz(
+        os.path.join(data_dir, f'item_graph_{neighborhood_suffix}{weight_suffix}_{train_suffix}.npz')
+    ).tocsr()
     num_users = uu.shape[0]  # the graphs carry the padding / mask rows, so take the size from the graph itself
     A = general[:num_users, num_users:].tocsr()  # users x items
     out = {}
@@ -53,7 +62,7 @@ def graph_overlap(data_dir, k=50):
                 n += 1
         out[name] = {
             'stored_neighbours_inside_2hop': covered / max(total, 1),
-            'mean_jaccard_with_top%d_of_2hop' % k: jacc / max(n, 1),
+            f'mean_jaccard_with_top{k}_of_2hop' if k is not None else 'mean_jaccard_with_full_2hop': jacc / max(n, 1),
             'rows': stored.shape[0],
         }
     return out
@@ -77,14 +86,17 @@ def view_similarity(config, checkpoint, batches=8):
         'L_UC pair: user–user graph view vs user–item graph view (same user)': (
             'user_graph_user_embeddings',
             'common_graph_user_embeddings',
+            'user_ids',
         ),
         'L_IC pair: item–item graph view vs user–item graph view (same item)': (
             'item_graph_item_embeddings',
             'common_graph_item_embeddings',
+            'item_ids',
         ),
         'L_IL pair: sequential interest vs graph interest (same user)': (
             'sequential_representation',
             'graph_representation',
+            'user_ids',
         ),
     }
     acc = {k: {'same': [], 'other': []} for k in pairs}
@@ -94,15 +106,20 @@ def view_similarity(config, checkpoint, batches=8):
                 break
             batch = {k: v.to(DEVICE) for k, v in batch.items()}
             out = model(batch)
-            for name, (a, b) in pairs.items():
+            for name, (a, b, ids_key) in pairs.items():
                 x = torch.nn.functional.normalize(out[a], dim=-1)
                 y = torch.nn.functional.normalize(out[b], dim=-1)
                 sim = x @ y.T
                 acc[name]['same'].append(sim.diagonal().mean().item())
-                off = sim - torch.diag(sim.diagonal())
-                acc[name]['other'].append((off.sum() / (sim.numel() - sim.shape[0])).item())
+                ids = out[ids_key]
+                other_entities = ids.unsqueeze(0) != ids.unsqueeze(1)
+                if other_entities.any():
+                    acc[name]['other'].append(sim[other_entities].mean().item())
     return {
-        k: {'cos_same_entity': float(np.mean(v['same'])), 'cos_other_entities': float(np.mean(v['other']))}
+        k: {
+            'cos_same_entity': float(np.mean(v['same'])) if v['same'] else None,
+            'cos_other_entities': float(np.mean(v['other'])) if v['other'] else None,
+        }
         for k, v in acc.items()
     }
 
@@ -145,9 +162,15 @@ def main():
         if 'name' in config['dataset']
         else config['dataset'].get('graph_dir_path')
     )
+    similarity = view_similarity(config, args.checkpoint)
     report = {
-        'graph_overlap': graph_overlap(data_dir, config['dataset'].get('neighborhood_size', 50)),
-        'view_similarity_at_checkpoint': view_similarity(config, args.checkpoint),
+        'graph_overlap': graph_overlap(
+            data_dir,
+            config['dataset'].get('neighborhood_size', 50),
+            interaction_weighting=config['dataset'].get('interaction_weighting', 'binary'),
+            use_train_data_only=config['dataset'].get('use_train_data_only', True),
+        ),
+        'view_similarity_at_checkpoint': similarity,
         'training_loss_curves': loss_curves(config['experiment_name']),
     }
     print(json.dumps(report, indent=2))
