@@ -45,6 +45,7 @@ from irec.loss import BaseLoss  # noqa: E402
 from irec.models import BaseModel  # noqa: E402
 from irec.optimizer import BaseOptimizer  # noqa: E402
 from irec.train import atomic_save, train  # noqa: E402
+from irec.training import validate_sampling_proposals  # noqa: E402
 from irec.utils import DEVICE, fix_random_seed  # noqa: E402
 
 
@@ -150,6 +151,7 @@ def main():
 
     model = BaseModel.create_from_config(config['model'], **dataset.meta).to(DEVICE)
     loss_function = BaseLoss.create_from_config(config['loss'])
+    validate_sampling_proposals(train_sampler, loss_function)
     if isinstance(loss_function, torch.nn.Module):
         loss_function = loss_function.to(DEVICE)
     optimizer = BaseOptimizer.create_from_config(

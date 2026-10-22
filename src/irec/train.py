@@ -29,6 +29,7 @@ from irec.training import (  # noqa: F401  (re-exported for the scripts)
     seed_val,
     train,
     unwrap_state_dict,
+    validate_sampling_proposals,
 )
 
 logger = create_logger(name=__name__)
@@ -102,6 +103,7 @@ def main():
         model.load_state_dict(unwrap_state_dict(checkpoint))
 
     loss_function = BaseLoss.create_from_config(config['loss'])
+    validate_sampling_proposals(train_sampler, loss_function)
     if isinstance(loss_function, torch.nn.Module):
         loss_function = loss_function.to(DEVICE)
 

@@ -10,8 +10,32 @@ import copy
 import os
 import torch
 
+from irec.dataset.negative_samplers.popular import PopularNegativeSampler
+from irec.loss.retrieval import SampledLogQLoss
+
 logger = create_logger(name=__name__)
 seed_val = 42
+
+
+def validate_sampling_proposals(train_sampler, loss_function):
+    sampler = getattr(train_sampler, '_negative_sampler', None)
+    if not isinstance(sampler, PopularNegativeSampler) or not isinstance(loss_function, torch.nn.Module):
+        return
+    for component in loss_function.modules():
+        if not isinstance(component, SampledLogQLoss) or component._logq_lambda == 0:
+            continue
+        item_ids = torch.as_tensor(sampler._item_ids, dtype=torch.long)
+        log_q = component._log_q_table.detach().cpu().double()
+        if item_ids.numel() == 0 or item_ids.max() >= log_q.numel():
+            raise ValueError('Explicit-negative count table does not cover the sampler base proposal')
+        expected = torch.as_tensor(sampler._probs, dtype=torch.float64)
+        actual = torch.softmax(log_q[item_ids], dim=0)
+        if not torch.allclose(actual, expected, rtol=1e-6, atol=1e-12):
+            raise ValueError(
+                'Explicit-negative count table does not match the sampler base proposal; '
+                'popular sampling requires event frequencies over the loaded training rows, '
+                'including targets and repeated occurrences, not context-inclusion counts'
+            )
 
 
 def unwrap_state_dict(checkpoint):
@@ -74,7 +98,7 @@ def train(
     logger.debug('Start training...')
 
     while (epoch_cnt is None or epoch_num < epoch_cnt) and (step_cnt is None or step_num < step_cnt):
-        if best_epoch + epochs_threshold < epoch_num:
+        if best_metrics and best_epoch + epochs_threshold < epoch_num:
             logger.debug(
                 'There is no progress during {} epochs. Finish training'.format(
                     epochs_threshold,
@@ -83,6 +107,7 @@ def train(
             break
 
         logger.debug(f'Start epoch {epoch_num}')
+        epoch_start_step = step_num
         for step, batch in enumerate(dataloader):
             if step_cnt is not None and step_num >= step_cnt:
                 break
@@ -122,6 +147,8 @@ def train(
                     if on_improvement is not None:
                         on_improvement(name, best_checkpoints[name])
 
+        if step_num == epoch_start_step:
+            raise ValueError('Training dataloader produced no batches')
         epoch_num += 1
     logger.debug('Training procedure has been finished!')
     return best_checkpoints

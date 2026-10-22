@@ -60,6 +60,9 @@ def evaluate(model, dataloader, metric_configs, pred_prefix, labels_prefix, meta
                     ),
                 )
 
+    if any(not values for values in running.values()):
+        raise ValueError('checkpoint evaluation produced no metric values')
+
     result = {}
     for name, metric in metrics.items():
         values = running[name]

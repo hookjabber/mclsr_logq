@@ -69,6 +69,34 @@ mask choices, temperatures and component weights are not silently switched.
 Full-catalogue contrastive positives cannot
 refer to padding or mask rows.
 
+For explicit popularity negatives, both training entry points compare an enabled
+`mclsr_logq_special` correction with the sampler's base item-frequency proportions.
+The counts must include every item occurrence in the loaded training rows, including
+targets and repeated ladder appearances. Context-inclusion or next-target counts
+are not substitutes. A mismatch fails before the first optimizer update; lambda zero
+does not use this correction. This check does not establish exact probabilities after
+seen-item rejection and sampling without replacement.
+
+The historical `beauty/02_popular127_logq.json` points to `item_context_counts.pkl`.
+The current role-count generator writes context-inclusion counts to that filename;
+those artifacts cannot be used for a corrected explicit-popularity run. Preserve the
+historical config/results and use a new experiment name and a separate sampler-event
+count artifact for a new run. The historical file's contents and result impact cannot
+be inferred from its filename alone.
+
+Role and history-length checks on count artifacts do not verify their source hashes
+against a newly rebuilt dataset. Regenerate and repoint counts after any data change;
+recording their hashes establishes artifact identity, not semantic consistency.
+
+## Training and empty splits
+
+Training without a selection metric obeys the configured step/epoch budget rather
+than applying metric-based patience. With selection metrics, existing shared patience
+and first-best tie handling remain unchanged. A requested training epoch with no
+batches fails explicitly, including when `drop_last` removes the entire dataset.
+Standalone checkpoint evaluation, like the callbacks, rejects absent metric values
+instead of reporting NaN. Users with empty target sets still contribute a valid zero.
+
 ## Reproducible checks
 
 - `tests/test_ranking_contract.py`: independent scalar metric oracles over all
