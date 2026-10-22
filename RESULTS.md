@@ -1,5 +1,14 @@
 # Experiment results: logQ correction study on MCLSR
 
+> **Historical protocol, not a certification of paper fidelity.** The numerical tables below
+> are preserved from the original runs. They use crop-before-ladder preprocessing, a 19/20
+> train/eval history mismatch, and historical count/sampler choices; some local Toys rows
+> also contain real item ID 0, which the model reserves. The new `windowed-v2` protocol has
+> not been used to recompute these tables. See [protocol status](docs/PROTOCOL_V2.md).
+> User-bootstrap intervals are conditional on the trained seeds, not training-run confidence
+> intervals. The local dataset label "Toys" does not independently prove its identity with
+> the dataset used in the original paper.
+
 Two parts. **Part A** (September 2026) is the multi-seed study across three datasets
 under one protocol; it supersedes the single-seed numbers below wherever they overlap.
 **Part B** is the original single-seed exploratory study on Amazon Clothing (July–August
@@ -135,7 +144,8 @@ its 5-core sequence file; CDs & Vinyl inherits the split of the shared framework
 files follow the same protocol (seed-42 user split, ladder of cropped sequences, `int(0.8·len)`
 history/target cut). CDs & Vinyl ids are 0-based as inherited, so user 0 shares the padding row
 of the user table and item 0 (4 occurrences in the training sequences) is never ranked at
-inference — a negligible asymmetry, kept to leave the reported runs untouched.
+inference — a known ID-contract violation whose performance effect has not been isolated,
+kept here only to preserve the historical run description. New data must remap real IDs above zero.
 
 Hardware. One arm (`05_full_l00`, seed 1) was re-run unchanged on a different GPU model
 (`05_full_l00_gpucheck`: GTX 1080 instead of RTX 3080). The two runs part from the first update
@@ -158,19 +168,25 @@ is therefore made between runs on the same GPU model; the only exception is mark
 | 05 − L_IL | + | – | + | + | 0.0516 | 0.490 |
 | 03 − L_IL (β = 0) | + | – | – | – | 0.0500 | 0.498 |
 
-The user–user and item–item graphs and their feature-level contrastive losses contribute nothing (every paired difference within noise), on CDs & Vinyl as well (3 seeds: full model 0.0494 / 0.506, minus user–user 0.0494 / 0.505, minus item–item 0.0488 / 0.505, vs 0.0497 / 0.508 without them). Removing the alignment loss L_IL costs −0.0057 / −0.049 on every seed even with both feature graphs in place (CDs & Vinyl, 3 seeds: 0.0404 / 0.449, and 0.0390 / 0.445 for the graph alone — below the model without any graph): the only working component of the graph branch is the user–item graph aligned to the sequential interest through L_IL, and its contribution is tail recall.
+The user–user and item–item ablations show small observed differences in this historical protocol,
+not evidence of zero contribution or equivalence. On CDs & Vinyl (3 seeds), the full model scores
+0.0494 / 0.506, minus user–user 0.0494 / 0.505, minus item–item 0.0488 / 0.505, versus
+0.0497 / 0.508 without them. Removing L_IL lowers the recorded Beauty means by −0.0057 / −0.049;
+the corresponding CDs & Vinyl means are 0.0404 / 0.449 and 0.0390 / 0.445 for the graph alone.
+These results motivate further tests of the user–item/interest-alignment combination, not a claim
+that it is the only useful graph component in all MCLSR implementations.
 
 The feature graphs do not help without the correction either. The paper's own model (graph + L_IL + L_UC + L_IC) trained with the uncorrected retrieval loss (λ = 0) scores 0.0374 / 0.472 on Beauty against 0.0393 / 0.474 for the same model without the feature graphs (per-seed ndcg@20 differences −0.0022 / −0.0010 / −0.0024), and 0.0385 / 0.447 against 0.0376 / 0.443 on CDs & Vinyl (+0.0018 / +0.0005 / +0.0007 — a consistent but tiny gain that disappears once the retrieval loss is corrected: −0.0004 at λ = 1). So the feature-level contrastive mechanism, which the MCLSR paper reports as important (its "MCLSR-F" ablation), does not reproduce in this protocol under either loss. Removing the propagation instead (depth 0) from the paper's model under its own
 objective (λ = 0, Beauty, one seed) gives 0.0355 / 0.440 against 0.0374 / 0.464 for the propagated
 model — the direction of the paper's "MCLSR-G" ablation at about a third of its reported size
 (−6…−7 % at @50 here against −15…−24 % in its Table 3), and no better than the model without any graph.
 
-**Why the feature graphs cannot contribute** (`scripts/diagnose_feature_graphs.py`, paper model,
-seed-1 checkpoint). (1) By construction they carry nothing the user–item graph does not: the
+**Possible representation redundancy, not a proof of no contribution** (`scripts/diagnose_feature_graphs.py`, study model,
+seed-1 checkpoint). (1) The feature graphs derive their edges from the user–item graph: the
 user–user and item–item graphs are top-50 selections from the co-purchase counts, and 100 % of
 their edges lie inside the 2-hop neighbourhood of the user–item graph on both datasets — exactly
 the neighbourhood that two LightGCN layers over the bipartite graph already aggregate.
-(2) Consequently the two "views" that L_UC and L_IC contrast are near-copies: at the trained
+(2) At this checkpoint the two "views" that L_UC and L_IC contrast have high cosine similarity: at the trained
 checkpoint the cosine between a user's user–user-graph view and its user–item-graph view is 0.998,
 against 0.95 between *different* users (Beauty; CDs & Vinyl 0.998 / 0.93); for items 0.994 / 0.87
 (0.996 / 0.90). The pair that L_IL aligns is a genuinely different one: 0.995 for the same user
@@ -220,10 +236,11 @@ permutation test (`scripts/paired_bootstrap.py`; full table and JSON in
 
 ![Paired per-user differences with 95 % bootstrap intervals](./assets/paired_bootstrap_beauty.png)
 
-Every gain of the correction on the retrieval loss and the harm of the correction on L_IL are
-significant on every seed; the exact softmax is statistically indistinguishable from in-batch +
-logQ, and the feature-level graphs add nothing. The gain survives in the paper's own cosine form of
-the contrastive losses (`results/stats/beauty_paper_form_bootstrap.md`).
+The reported bootstrap resamples users after averaging their paired differences across the
+fixed trained seeds. It does not establish significance on every seed or uncertainty over new
+training runs. A non-significant comparison does not prove equivalence or that feature graphs
+have no effect. The cosine/paper-contrastive arms show a positive retrieval difference in these
+stored runs (`results/stats/beauty_paper_form_bootstrap.md`), not a complete paper replication.
 
 ## Part B. Clothing exploratory study (July–August 2026, single seed)
 

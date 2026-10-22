@@ -12,7 +12,14 @@ runs/
 .DS_Store
 tensorboard_logs/
 new_tensorboard_logs/
-docs/
+docs/*
+!docs/PROTOCOL_V2.md
+!docs/native-crash-diagnostics.md
+!docs/component-screen.md
+!docs/logq-followup.md
+!docs/GRAPH_EVENT_COUNTS.md
+!docs/GENERIC_VALIDATION.md
+!docs/PAPER_ALIGNMENT.md
 results/*
 !results/confirm/
 !results/deciles/

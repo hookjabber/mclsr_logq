@@ -13,6 +13,10 @@ export PYTHONPATH=src
 
 ## 2. Data
 
+The commands in this section reproduce the **historical `legacy-v1`** datasets and tables.
+For new experiments use [the versioned `windowed-v2` recipe](docs/PROTOCOL_V2.md) in a new
+directory. Do not mix remapped IDs, new windows/counts or checkpoints with historical artifacts.
+
 Raw Amazon ratings (`user,item,rating,timestamp`, no header) go to `data/<Name>/data.csv`.
 
 ```bash
@@ -36,8 +40,30 @@ python scripts/check_split_leakage.py --data-dir data/Clothing
 ```
 
 The graphs (`*.npz`) are built on the first run of a graph config and cached next to the data.
+Archives without matching embedded input provenance are rebuilt; copy legacy artifacts to a
+separate run directory if the original archive bytes need to be preserved.
+
+Graph weights default to binary user-item presence, including on datasets with repeated
+events. For explicit canonical event-frequency weights, see
+[repeated events and graph weights](docs/GRAPH_EVENT_COUNTS.md). This opt-in v2 mode has
+separate caches and does not change existing experiment configurations.
 
 ## 3. Checks before training
+
+See [general validation](docs/GENERIC_VALIDATION.md) for repeated-event semantics,
+input validation, sampling boundaries and the independent CPU checks. The strict
+frozen-screen source-identity test intentionally fails when development sources
+differ from the archived run; do not update its expected hashes to hide that drift.
+Archive-dependent tests require the original external evidence bundle, which is
+not distributed with this repository. They are explicitly skipped when
+`MCLSR_SCREEN_EVIDENCE` is unset; this does not certify historical source identity.
+Set it to the original bundle's path to run those checks. An explicitly supplied
+missing file is an error, and changed source fingerprints still fail:
+
+```bash
+MCLSR_SCREEN_EVIDENCE=/path/to/component-screen-results-evidence-20261015.tgz \
+  python -m pytest -q tests/test_paper_protocol_oracle.py
+```
 
 ```bash
 python -m pytest -q tests                                   # reference, config, runtime, end-to-end
@@ -81,4 +107,6 @@ sha256 of the config, the count tables and the checkpoint, the git commit and th
 The `git_commit` field of a report names the commit of the cluster working tree the run was
 started from; that clone carries an older history of the same code (the public history was
 rewritten before release), so the field dates a run rather than pointing into this repository.
-The code behind every report is the code verified by the tests and the checks above.
+Historical reports describe their original runs, not later development fixes.
+Compare source fingerprints where available before attributing old results to
+the current checkout; a passing numerical test does not prove source identity.

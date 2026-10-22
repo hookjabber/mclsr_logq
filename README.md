@@ -24,10 +24,19 @@
 **IRec** is a config-driven PyTorch framework for reproducible research in sequential and graph-based recommendation.
 
 This repository hosts a systematic study of the **logQ sampling-bias correction** in a
-multi-loss graph-contrastive recommender (MCLSR, CIKM'22): where the correction helps
-(in-batch retrieval), where it does not (contrastive alignment losses), and why. Every
-loss variant is locked in by reference tests, and every experiment is a single JSON
-config away. **All experiment results with verdicts: [RESULTS.md](./RESULTS.md).**
+multi-loss graph-contrastive recommender (MCLSR, CIKM'22). The historical experiments
+support a retrieval improvement in this implementation; contrastive-loss conclusions
+depend on the objective, masking and data protocol. Reference tests verify implemented
+functions, not complete paper fidelity. **Results: [RESULTS.md](./RESULTS.md).**
+
+For the equation-by-equation comparison and the distinction between deliberate
+logQ experiments, implementation choices and unknown author details, see
+[paper alignment](./docs/PAPER_ALIGNMENT.md).
+
+> **Protocol status (October 2026):** historical tables use `legacy-v1` preprocessing.
+> Corrected per-target windows, positive item IDs and aligned train/eval lengths are
+> available as opt-in `windowed-v2`; historical results have **not** been rerun with it.
+> See [protocols and limitations](./docs/PROTOCOL_V2.md) before training or citing results.
 
 ## Start here: the study at a glance
 
@@ -35,7 +44,7 @@ config away. **All experiment results with verdicts: [RESULTS.md](./RESULTS.md).
 
 Test ndcg@20 / recall@1000 over the full catalogue, mean of three seeds (model selected on validation, test read once):
 
-| | Clothing | Beauty | CDs & Vinyl ("Toys" in the MCLSR paper) |
+| | Clothing | Beauty | Local "Toys" / CDs & Vinyl dataset |
 |---|---|---|---|
 | MCLSR, in-batch sampled softmax, no correction | 0.0152 / 0.252 | 0.0386 / 0.436 | 0.0349 / 0.413 |
 | **MCLSR, in-batch + logQ on the retrieval loss** | **0.0226 / 0.314** | **0.0556 / 0.510** | **0.0497 / 0.481** |
@@ -45,10 +54,10 @@ Test ndcg@20 / recall@1000 over the full catalogue, mean of three seeds (model s
 | SASRec, in-batch: no correction → logQ | 0.0085 → 0.0178 | 0.0478 → 0.0631 | 0.0268 → 0.0438 |
 
 1. The correction on the retrieval loss gives +42…+48 % ndcg@20 on MCLSR and +32…+108 % on SASRec, positive on every seed of every dataset, and recovers 80–100 % of the exact-softmax gain.
-2. The same correction on the contrastive alignment loss hurts; the mechanism is a margin, not a sampling correction (a constant-q "correction" reproduces the harm).
-3. The graph and the correction are additive; the graph alone does not repair the popularity bias and adds tail recall only. The user–user and item–item graphs of the paper contribute nothing; the alignment loss is what makes the graph useful.
-4. The three published forms of the correction (negatives-only, Yi et al., Khrylchenko–Baikalov et al. RecSys'25) are indistinguishable here; the loss weights of the original paper are optimal within noise.
-5. The gain does not depend on this implementation's choices: in the paper's own cosine form of the contrastive losses the correction still adds +0.014 ndcg@20 on Beauty (3 seeds, p = 0.0001), and the whole pipeline is verified independently stage by stage (below).
+2. In the historical dot/symmetric arms, adding contrastive correction lowers the mean; a constant-q ablation supports a margin-related explanation there. This is not a universal conclusion about cosine/paper objectives.
+3. Graph and retrieval correction improvements coexist in the reported arms. Small user–user/item–item ablation differences do not establish that those components have no effect.
+4. The tested correction variants have close means; this is not an equivalence test or proof of globally optimal loss weights. None is claimed to be a finite-sample unbiased full-softmax gradient estimator.
+5. The cosine/paper-contrastive Beauty arms also show a retrieval gain of about +0.014 ndcg@20 over three stored seeds. Their user-conditional bootstrap does not include uncertainty over new training runs, and the arms retain other deviations from the paper.
 
 Where to look:
 
@@ -67,6 +76,12 @@ scipy, the forward pass and all losses are reimplemented in numpy from the saved
 synthetic end-to-end run must reproduce itself seed for seed, and the headline comparisons carry
 paired per-user bootstrap intervals. What each check covers and how to run it:
 [VERIFICATION.md](./VERIFICATION.md).
+
+For intermittent native training crashes, see [isolated loss diagnostics](./docs/native-crash-diagnostics.md).
+Diagnostic success does not establish long-run CUDA stability or replace a scientific trial.
+
+To separate auxiliary-objective removal, duplicate masking and per-loss logQ,
+see the [validation-only component screen](./docs/component-screen.md).
 
 ![Paired per-user differences of the headline comparisons on Beauty, 95 % bootstrap intervals](./assets/paired_bootstrap_beauty.png)
 

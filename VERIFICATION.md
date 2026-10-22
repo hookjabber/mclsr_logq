@@ -1,7 +1,9 @@
 # Verification: what was checked, and how to re-run every check
 
-Every claim in [RESULTS.md](./RESULTS.md) rests on the pipeline below. Each stage has an
-independent check that does not reuse the framework code it verifies; all of them run on a CPU.
+The checks below verify specific implemented invariants, not every scientific claim or complete
+paper fidelity. The status column records historical checks; rerun them for each new snapshot.
+See [protocols and audit repairs](docs/PROTOCOL_V2.md) for the corrected versioned data path,
+fail-closed CLI checks, content-identified graph caches and limits of statistical inference.
 
 | stage | check | how to run | status |
 |---|---|---|---|
@@ -33,7 +35,7 @@ MCLSR (Wang et al., CIKM 2022), equations as numbered in the paper; the framewor
 | 14 | sampled softmax on I_comb with 1280 negatives | `loss/retrieval.py` `InBatchLogQLoss`: in-batch negatives (127), same-item and same-user masks, three forms of the logQ correction; `01_uniform1280` arm = 1280 uniform negatives; `FullSoftmaxLoss` = exact softmax | the study's object: which sampler and which correction |
 | 15 | J = L_P + β L_IL + γ L_FL, β = 1, γ = 0.05 | `CompositeLoss`, config weights 1 / 1 / 0.05 / 0.05 | see eq. 8 note |
 | 16 | top-N by (I_s)ᵀ h_v over the catalogue | forward in eval mode, `eval_top_k` | none |
-| §5.1 | 5-core, train length 20, users 8:1:1, every item a target, inference from the first 80 % | `scripts/prepare_dataset.py`, `dataset/sequences.py` `MCLSRDataset` | none |
+| §5.1 | 5-core, bounded input history, users 8:1:1, every item after the first a target, inference from the first 80 % | `scripts/prepare_dataset.py`, `dataset/sequences.py` `MCLSRDataset` | historical `legacy-v1` crops before creating targets and uses 19/20 train/eval inputs; opt-in `windowed-v2` fixes these contracts and remaps positive IDs, but requires fresh experiments |
 
 ## The three forms of the correction, and the released implementation
 
